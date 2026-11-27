@@ -230,7 +230,8 @@ function normalizeMode(m) {
       chase: m.video.chase, spm: clamp(num(m.video.spm, 24), 10, 60),
       ship: typeof m.video.ship === 'string' ? m.video.ship : null, side: typeof m.video.side === 'string' ? m.video.side : null, horizon: clamp(num(m.video.horizon, 0.5), 0.1, 0.95),
       shipCrop: (Array.isArray(m.video.shipCrop) && m.video.shipCrop.length === 4) ? m.video.shipCrop.map(Number) : [0, 0, 1, 1],
-      shipHeight: clamp(num(m.video.shipHeight, 34), 2, 200), zoom: clamp(num(m.video.zoom, 1.16), 1, 2)
+      shipHeight: clamp(num(m.video.shipHeight, 34), 2, 200), zoom: clamp(num(m.video.zoom, 1.16), 1, 2),
+      fade: clamp(num(m.video.fade, 0.7), 0.1, 2), minRate: clamp(num(m.video.minRate, 0.75), 0.5, 1)
     } : null,
     lines: (Array.isArray(m.lines) ? m.lines : []).map(l => ({ at: num(l.at, 0), say: String(l.say || '') })).sort((a, b) => a.at - b.at),
     hooks: (m.hooks && typeof m.hooks === 'object') ? m.hooks : {}
@@ -242,13 +243,11 @@ function normalizeMode(m) {
 }
 function registerMode(def) { const m = normalizeMode(def); MODES.set(m.id, m); if (typeof renderModes === 'function') renderModes(); return m; }
 
-const PIRATE_FILM = {
-  id: 'pirate-chase-film', name: '해적 추격 (실사)', tagline: '실사 영상. 젓는 박자에 맞춰 영상이 흐른다. 따라잡히기 전에 500m를 저어라.',
-  video: { chase: 'media/pirate-chase.mp4', spm: 30 },
-  goal: { distance: 500, label: '항구', kind: 'harbor' }, steer: false,
-  pursuer: { gap: 90, speed: [2.5, 3.4], ramp: 150, label: '해적선' },
-  cannon: { every: [7, 12] },
-  lines: [{ at: 0, say: '해적이다! 항구까지 저어라!' }, { at: 250, say: '절반 왔다. 놈들이 속도를 올린다!' }, { at: 430, say: '항구가 가깝다. 마지막이다!' }]
+const RIVER = {
+  id: 'river-eight', name: '강 위의 에이트 (실사)', tagline: '실제 촬영 같은 1인칭 영상. 젓는 박자에 맞춰 배가 나아간다. 500m를 저어라.',
+  video: { chase: 'media/river-eight.mp4', spm: 29.4, fade: 0.25, minRate: 0.85 },
+  goal: { distance: 500, label: '결승선', kind: 'harbor' }, steer: false,
+  lines: [{ at: 0, say: '출발. 500m, 박자를 맞춰라.' }, { at: 250, say: '절반 지났다. 리듬 유지.' }, { at: 400, say: '마지막 100m. 전부 쏟아라!' }]
 };
 const PIRATE = {
   id: 'pirate-chase', name: '해적 추격 (3D)', tagline: '해적선이 쫓아온다. 따라잡히기 전에 500m 앞 항구로 들어가라.',
@@ -878,18 +877,19 @@ function filmTick(dt, v) {
   // Playback follows the stroke rate, so the arms on screen pull roughly when you pull.
   const rowing = rower.spm >= 12 && rower.strokeT < 4;
   // Never play slower than 0.75x: below that the footage visibly judders. Glide to a stop instead of crawling.
-  const want = rowing ? clamp(rower.spm / v.spm, 0.75, 1.6) : (rower.speed > 0.5 ? 0.75 : 0);
+  const lo = v.minRate;
+  const want = rowing ? clamp(rower.spm / v.spm, lo, 1.6) : (rower.speed > 0.5 ? lo : 0);
   film.rate += (want - film.rate) * Math.min(1, dt * 2.5);
-  if (film.rate < 0.72) film.rate = want > 0 ? 0.75 : (film.rate < 0.5 ? 0 : film.rate - dt * 1.5);
+  if (film.rate < lo - 0.03) film.rate = want > 0 ? lo : (film.rate < 0.5 ? 0 : film.rate - dt * 1.5);
   const c = film.cur, n = film.nxt, d = c.duration;
   if (film.rate < 0.5) { if (!c.paused) c.pause(); }
   else { setRate(c, film.rate); if (c.paused) c.play().catch(() => {}); }
   if (!d) return;
-  const tail = 0.7;
+  const tail = v.fade;
   if (!film.fading && c.currentTime > d - tail) { film.fading = true; c.style.zIndex = 1; n.style.zIndex = 2; n.style.opacity = 0; try { n.currentTime = 0.03; } catch (e) {} }
   if (film.fading) {
-    setRate(n, Math.max(0.75, film.rate)); if (film.rate >= 0.5 && n.paused) n.play().catch(() => {});
-    const k = clamp((c.currentTime - (d - tail)) / (tail - 0.12), 0, 1); n.style.opacity = k;
+    setRate(n, Math.max(lo, film.rate)); if (film.rate >= 0.5 && n.paused) n.play().catch(() => {});
+    const k = clamp((c.currentTime - (d - tail)) / (tail * 0.8), 0, 1); n.style.opacity = k;
     film.mixB = n === film.b ? k : 1 - k;
     if (k >= 1 || c.ended) { c.pause(); c.style.opacity = 0; n.style.opacity = 1; film.cur = n; film.nxt = c; film.fading = false; }
   }
@@ -897,7 +897,7 @@ function filmTick(dt, v) {
 }
 
 /* ================= Game state ================= */
-const settings = { bodycam: store.get('bodycam', true), mode: store.get('mode', 'pirate-chase-film'), diff: store.get('diff', 1), autoLook: store.get('autoLook', true), voice: false };
+const settings = { bodycam: store.get('bodycam', true), mode: store.get('mode', 'river-eight'), diff: store.get('diff', 1), autoLook: store.get('autoLook', true), voice: false };
 let S = null, phase = 'menu', worldT = 0, pursuerMesh = null;
 const head = { yaw: 0, hold: null, drag: null, voice: null, auto: null };
 const steer = { l: false, r: false, voice: 0, voiceUntil: 0, vis: 0 };
@@ -1179,7 +1179,7 @@ function setVoice(on) {
 /* ================= Menu ================= */
 function renderModes() {
   const list = $('modeList'); if (!list) return; list.textContent = '';
-  if (!MODES.has(settings.mode)) settings.mode = 'pirate-chase-film';
+  if (!MODES.has(settings.mode)) settings.mode = 'river-eight';
   MODES.forEach(m => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'mode'; b.setAttribute('aria-pressed', m.id === settings.mode);
     const s = document.createElement('strong'); s.textContent = m.name;
@@ -1219,10 +1219,10 @@ $('modeAdd').addEventListener('click', () => {
 });
 $('modeReset').addEventListener('click', () => {
   store.get('custom', []).forEach(d => MODES.delete(String(d.id))); store.set('custom', []);
-  registerMode(PIRATE_FILM); registerMode(PIRATE); renderModes(); renderDiff(); $('modeMsg').textContent = '내 모드를 모두 지웠습니다.';
+  registerMode(RIVER); registerMode(PIRATE); renderModes(); renderDiff(); $('modeMsg').textContent = '내 모드를 모두 지웠습니다.';
 });
 
-registerMode(PIRATE_FILM); registerMode(PIRATE);
+registerMode(RIVER); registerMode(PIRATE);
 store.get('custom', []).forEach(d => { try { d.custom = true; registerMode(d); } catch (e) {} });
 window.RowGame = { registerMode, modes: MODES, api };
 setLook(MODES.get('pirate-chase').look); buildOwnBoat('skiff'); buildOars('skiff'); layoutMirror();
