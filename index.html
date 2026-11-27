@@ -31,6 +31,11 @@ body { background: var(--ink); color: var(--foam); font-family: var(--body); ove
 #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #film { position: absolute; inset: 0; overflow: hidden; background: #000; pointer-events: none; }
 #filmPan { position: absolute; inset: 0; will-change: transform; }
+#film #vidS { width: 2px; height: 2px; opacity: .01; inset: auto auto 0 0; }
+#film.gl { background: transparent; }
+#app.filming .stat { background: rgba(11,23,34,.3); border-color: transparent; text-shadow: 0 1px 3px #000; }
+#app.filming .stat span { color: var(--foam); }
+#film.gl #filmPan { opacity: .01; }
 #film video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 #filmFx { position: absolute; inset: 0; z-index: 5; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%); box-shadow: inset 0 0 0 0 transparent; }
 #filmFx::after { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(228,87,46,.75) 100%); opacity: var(--danger, 0); }
@@ -98,7 +103,7 @@ textarea { width: 100%; box-sizing: border-box; min-height: 180px; margin-block:
 
 <div id="app">
   <canvas id="view" aria-label="사공의 눈으로 본 바다"></canvas>
-  <div id="film" hidden><div id="filmPan"><video id="vidA" playsinline muted preload="auto"></video><video id="vidB" playsinline muted preload="auto"></video></div><div id="filmFx"></div></div>
+  <div id="film" hidden><div id="filmPan"><video id="vidA" playsinline muted preload="auto"></video><video id="vidB" playsinline muted preload="auto"></video></div><video id="vidS" playsinline muted loop preload="auto"></video><div id="filmFx"></div></div>
 
   <div id="hud" class="gutter" hidden>
     <div class="stat"><b id="sGoal">500 m</b><span id="sGoalL">항구까지</span></div>
@@ -221,7 +226,12 @@ function normalizeMode(m) {
     cannon: m.cannon ? Object.assign({ every: [6, 11] }, m.cannon === true ? {} : m.cannon) : null,
     rocks: (Array.isArray(m.rocks) ? m.rocks : []).map(r => ({ at: num(r.at, 0), x: num(r.x, 0), r: clamp(num(r.r, 2.5), 1, 8) })),
     pace: null,
-    video: (m.video && typeof m.video.chase === 'string') ? { chase: m.video.chase, spm: clamp(num(m.video.spm, 24), 10, 60) } : null,
+    video: (m.video && typeof m.video.chase === 'string') ? {
+      chase: m.video.chase, spm: clamp(num(m.video.spm, 24), 10, 60),
+      ship: typeof m.video.ship === 'string' ? m.video.ship : null, horizon: clamp(num(m.video.horizon, 0.5), 0.1, 0.95),
+      shipCrop: (Array.isArray(m.video.shipCrop) && m.video.shipCrop.length === 4) ? m.video.shipCrop.map(Number) : [0, 0, 1, 1],
+      shipHeight: clamp(num(m.video.shipHeight, 34), 2, 200), zoom: clamp(num(m.video.zoom, 1.16), 1, 2)
+    } : null,
     lines: (Array.isArray(m.lines) ? m.lines : []).map(l => ({ at: num(l.at, 0), say: String(l.say || '') })).sort((a, b) => a.at - b.at),
     hooks: (m.hooks && typeof m.hooks === 'object') ? m.hooks : {}
   };
@@ -234,7 +244,7 @@ function registerMode(def) { const m = normalizeMode(def); MODES.set(m.id, m); i
 
 const PIRATE_FILM = {
   id: 'pirate-chase-film', name: '해적 추격 (실사)', tagline: '실사 영상. 젓는 박자에 맞춰 영상이 흐른다. 따라잡히기 전에 500m를 저어라.',
-  video: { chase: 'media/pirate-chase.mp4', spm: 30 },
+  video: { chase: 'media/sea-row.mp4', spm: 45, ship: 'media/pirate-ship.mp4', horizon: 0.80, shipCrop: [0.30, 0.02, 0.70, 1.0], shipHeight: 26, zoom: 1.08 },
   goal: { distance: 500, label: '항구', kind: 'harbor' }, steer: false,
   pursuer: { gap: 90, speed: [2.5, 3.4], ramp: 150, label: '해적선' },
   cannon: { every: [7, 12] },
@@ -802,16 +812,61 @@ function sizePost(w, h) {
 }
 const camDir = new THREE.Vector3();
 
+/* ---- film compositor: looping background footage + a green-screen ship sized by its distance ---- */
+const compU = {
+  tA: { value: null }, tB: { value: null }, tShip: { value: null }, fade: { value: 0 }, aspect: { value: 1 }, vAspect: { value: 16 / 9 },
+  zoom: { value: 1.16 }, pan: { value: new THREE.Vector2() }, ship: { value: new THREE.Vector4(0.5, 0.5, 0, 0) }, shipW: { value: 0 },
+  crop: { value: new THREE.Vector4(0, 0, 1, 1) }, horizon: { value: 0.5 }, time: U.time
+};
+const compScene = new THREE.Scene();
+const compQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  uniforms: compU, depthTest: false, depthWrite: false, toneMapped: false,
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`,
+  fragmentShader: `precision highp float; varying vec2 vUv;
+uniform sampler2D tA, tB, tShip; uniform float fade, aspect, vAspect, zoom, shipW, horizon, time; uniform vec2 pan; uniform vec4 ship, crop;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+void main(){
+  vec2 c = vUv - .5;
+  if (aspect > vAspect) c.y *= vAspect / aspect; else c.x *= aspect / vAspect;   // object-fit: cover
+  vec2 v = c / zoom + pan + .5;
+  vec3 bg = mix(texture2D(tA, v).rgb, texture2D(tB, v).rgb, fade);
+  if (ship.z > 0.001) {
+    vec2 s = vec2((v.x - ship.x) / shipW + .5, (v.y - ship.y) / ship.z);
+    if (s.x > 0. && s.x < 1. && s.y > 0. && s.y < 1.) {
+      vec4 k = texture2D(tShip, crop.xy + s * (crop.zw - crop.xy));
+      float g = k.g - max(k.r, k.b);
+      float a = 1. - smoothstep(0.05, 0.2, g);
+      k.g = min(k.g, max(k.r, k.b) + 0.015);                                        // remove green spill
+      a *= smoothstep(0., .03, s.x) * smoothstep(1., .97, s.x) * smoothstep(1., .97, s.y) * smoothstep(0., .06, s.y);
+      vec3 haze = mix(texture2D(tA, vec2(.5, horizon + .04)).rgb, texture2D(tB, vec2(.5, horizon + .04)).rgb, fade);
+      bg = mix(bg, mix(k.rgb, haze, ship.w), a);
+    }
+  }
+  float l = dot(bg, vec3(.299,.587,.114));
+  bg += (hash(vUv*vec2(1387., 911.) + fract(time)*71.) - .5) * 0.035 * (0.3 + l);  // shared grain binds the layers
+  gl_FragColor = vec4(bg, 1.);
+}`
+}));
+compQuad.frustumCulled = false; compScene.add(compQuad);
+const vtex = el => { const t = new THREE.VideoTexture(el); t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; return t; };
+
 /* ================= Film: real footage driven by the rowing rhythm ================= */
-const film = { a: $('vidA'), b: $('vidB'), cur: null, nxt: null, fading: false, on: false, rate: 0 };
+const film = { a: $('vidA'), b: $('vidB'), s: $('vidS'), cur: null, nxt: null, fading: false, on: false, rate: 0, mixB: 0, gl: false };
 function filmStart(v) {
   film.on = true; film.cur = film.a; film.nxt = film.b; film.fading = false; film.rate = 0;
   [film.a, film.b].forEach(el => { if (el.getAttribute('src') !== v.chase) el.src = v.chase; el.pause(); });
   film.a.style.opacity = 1; film.a.style.zIndex = 1; film.b.style.opacity = 0; film.b.style.zIndex = 2;
   try { film.a.currentTime = 0; } catch (e) {}
+  film.gl = !!v.ship; film.mixB = 0; $('film').classList.toggle('gl', film.gl);
+  if (film.gl) {
+    if (film.s.getAttribute('src') !== v.ship) film.s.src = v.ship;
+    film.s.play().catch(() => {});
+    if (!compU.tA.value) { compU.tA.value = vtex(film.a); compU.tB.value = vtex(film.b); compU.tShip.value = vtex(film.s); }
+    compU.crop.value.set(v.shipCrop[0], v.shipCrop[1], v.shipCrop[2], v.shipCrop[3]); compU.horizon.value = v.horizon; compU.zoom.value = v.zoom;
+  }
   $('film').hidden = false;
 }
-function filmStop() { film.on = false; film.a.pause(); film.b.pause(); }
+function filmStop() { film.on = false; film.a.pause(); film.b.pause(); film.s.pause(); }
 function filmTick(dt, v) {
   // Playback follows the stroke rate, so the arms on screen pull roughly when you pull.
   const rowing = rower.spm >= 12 && rower.strokeT < 4;
@@ -826,8 +881,10 @@ function filmTick(dt, v) {
   if (film.fading) {
     n.playbackRate = Math.max(0.1, film.rate); if (film.rate >= 0.1 && n.paused) n.play().catch(() => {});
     const k = clamp((c.currentTime - (d - tail)) / (tail - 0.12), 0, 1); n.style.opacity = k;
+    film.mixB = n === film.b ? k : 1 - k;
     if (k >= 1 || c.ended) { c.pause(); c.style.opacity = 0; n.style.opacity = 1; film.cur = n; film.nxt = c; film.fading = false; }
   }
+  if (!film.fading) film.mixB = film.cur === film.b ? 1 : 0;
 }
 
 /* ================= Game state ================= */
@@ -864,7 +921,7 @@ function startGame() {
   $('sGapBox').hidden = !mode.pursuer; if (mode.pursuer) $('sGapL').textContent = mode.pursuer.label + ' 거리';
   $('pace').hidden = !mode.pace;
   if (mode.video) { S.rocks = []; filmStart(mode.video); } else { filmStop(); $('film').hidden = true; }
-  $('lookB').hidden = !!mode.video; $('mirrorTag').style.display = mode.video ? 'none' : '';
+  $('lookB').hidden = !!mode.video; $('app').classList.toggle('filming', !!mode.video); $('mirrorTag').style.display = mode.video ? 'none' : '';
   phase = 'playing'; $('menu').hidden = true; $('over').hidden = true; $('hud').hidden = false; $('controls').hidden = false; $('mirrorTag').hidden = false; $('rec').hidden = !settings.bodycam;
   syncControls();
   if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});
@@ -989,6 +1046,15 @@ function frame(now) {
     // The footage is wider than the screen: turning the head slides the frame, like a camera on the chest.
     const q = reduceMotion ? 0 : shake * 2.5, pan = clamp(head.yaw / 1.45, -1, 1) * 10 + rand(-q, q), tilt = -1.5 + rand(-q, q);
     $('filmPan').style.transform = 'translate(' + pan.toFixed(2) + '%,' + tilt.toFixed(2) + '%) scale(1.24)';
+    if (film.gl) {
+      const v = S.mode.video, w = canvas.clientWidth || 1, h = canvas.clientHeight || 1, sway = reduceMotion ? 0 : 1;
+      compU.aspect.value = w / h; compU.fade.value = film.mixB;
+      compU.pan.value.set(-clamp(head.yaw / 1.45, -1, 1) * 0.035 + (n3(worldT * 0.5, 0, 0) - 0.5) * 0.012 * sway + rand(-q, q) * 0.004, (n3(0, worldT * 0.45, 4) - 0.5) * 0.012 * sway + rand(-q, q) * 0.004 + 0.08);
+      const d = Math.max(8, S.gap), F = 0.62, hgt = v.shipHeight / d * F;                 // pinhole: apparent size falls off with distance
+      compU.ship.value.set(0.5 + Math.sin(worldT * 0.13) * 0.01, v.horizon - 1.3 / d * F - hgt * 0.05, S.mode.pursuer ? hgt : 0, clamp(d / 420, 0, 0.45));
+      compU.shipW.value = hgt * (v.shipCrop[2] - v.shipCrop[0]) / (v.shipCrop[3] - v.shipCrop[1]);
+      renderer.setRenderTarget(null); renderer.render(compScene, postCam);
+    }
     $('filmFx').style.setProperty('--danger', S.mode.pursuer ? clamp(1 - (S.gap - 11) / 45, 0, 1).toFixed(2) : 0);
     updateParts(dt); return;
   }
