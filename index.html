@@ -244,7 +244,7 @@ function registerMode(def) { const m = normalizeMode(def); MODES.set(m.id, m); i
 
 const PIRATE_FILM = {
   id: 'pirate-chase-film', name: '해적 추격 (실사)', tagline: '실사 영상. 젓는 박자에 맞춰 영상이 흐른다. 따라잡히기 전에 500m를 저어라.',
-  video: { chase: 'media/sea-row.mp4', spm: 45, ship: 'media/pirate-ship.mp4', horizon: 0.787, shipCrop: [0.30, 0.02, 0.70, 1.0], shipHeight: 26, zoom: 1.08 },
+  video: { chase: 'media/pirate-chase.mp4', spm: 30 },
   goal: { distance: 500, label: '항구', kind: 'harbor' }, steer: false,
   pursuer: { gap: 90, speed: [2.5, 3.4], ramp: 150, label: '해적선' },
   cannon: { every: [7, 12] },
@@ -872,19 +872,23 @@ function filmStart(v) {
   $('film').hidden = false;
 }
 function filmStop() { film.on = false; film.a.pause(); film.b.pause(); film.s.pause(); film.l.pause(); }
+// Writing playbackRate every frame makes browsers re-time the video and drop frames, so only write real changes.
+function setRate(el, r) { r = Math.round(r * 20) / 20; if (Math.abs(el.playbackRate - r) > 0.001) el.playbackRate = r; }
 function filmTick(dt, v) {
   // Playback follows the stroke rate, so the arms on screen pull roughly when you pull.
   const rowing = rower.spm >= 12 && rower.strokeT < 4;
-  const want = rowing ? clamp(rower.spm / v.spm, 0.4, 2.2) : clamp(rower.speed / 2.8, 0, 1) * 0.6;
+  // Never play slower than 0.75x: below that the footage visibly judders. Glide to a stop instead of crawling.
+  const want = rowing ? clamp(rower.spm / v.spm, 0.75, 1.6) : (rower.speed > 0.5 ? 0.75 : 0);
   film.rate += (want - film.rate) * Math.min(1, dt * 2.5);
+  if (film.rate < 0.72) film.rate = want > 0 ? 0.75 : (film.rate < 0.5 ? 0 : film.rate - dt * 1.5);
   const c = film.cur, n = film.nxt, d = c.duration;
-  if (film.rate < 0.1) { if (!c.paused) c.pause(); }
-  else { c.playbackRate = film.rate; if (c.paused) c.play().catch(() => {}); }
+  if (film.rate < 0.5) { if (!c.paused) c.pause(); }
+  else { setRate(c, film.rate); if (c.paused) c.play().catch(() => {}); }
   if (!d) return;
   const tail = 0.7;
   if (!film.fading && c.currentTime > d - tail) { film.fading = true; c.style.zIndex = 1; n.style.zIndex = 2; n.style.opacity = 0; try { n.currentTime = 0.03; } catch (e) {} }
   if (film.fading) {
-    n.playbackRate = Math.max(0.1, film.rate); if (film.rate >= 0.1 && n.paused) n.play().catch(() => {});
+    setRate(n, Math.max(0.75, film.rate)); if (film.rate >= 0.5 && n.paused) n.play().catch(() => {});
     const k = clamp((c.currentTime - (d - tail)) / (tail - 0.12), 0, 1); n.style.opacity = k;
     film.mixB = n === film.b ? k : 1 - k;
     if (k >= 1 || c.ended) { c.pause(); c.style.opacity = 0; n.style.opacity = 1; film.cur = n; film.nxt = c; film.fading = false; }
@@ -1058,7 +1062,7 @@ function frame(now) {
         const turned = Math.abs(head.yaw) > 0.7; if (turned) film.flip = head.yaw < 0 ? 1 : 0;
         film.side += ((turned ? 1 : 0) - film.side) * Math.min(1, dt * 7);
         compU.sideMix.value = film.side * film.side * (3 - 2 * film.side); compU.sideFlip.value = film.flip;
-        if (film.rate >= 0.1) { film.l.playbackRate = film.rate; if (film.l.paused) film.l.play().catch(() => {}); } else if (!film.l.paused) film.l.pause();
+        if (film.rate >= 0.5) { setRate(film.l, film.rate); if (film.l.paused) film.l.play().catch(() => {}); } else if (!film.l.paused) film.l.pause();
       }
       compU.pan.value.set(-clamp(head.yaw / 1.45, -1, 1) * 0.035 + (n3(worldT * 0.5, 0, 0) - 0.5) * 0.012 * sway + rand(-q, q) * 0.004, (n3(0, worldT * 0.45, 4) - 0.5) * 0.012 * sway + rand(-q, q) * 0.004 + 0.08);
       const d = Math.max(8, S.gap), F = 0.62, hgt = v.shipHeight / d * F;                 // pinhole: apparent size falls off with distance
