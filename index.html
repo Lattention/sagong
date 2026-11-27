@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0;font-size:14px}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>사공 로잉 게임</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap">
+<style>
+/* Layout: one full-screen 3D view from the rower's seat; instruments ride on top like a ship's brass fittings. */
+:root {
+  color-scheme: dark;
+  --ink: #0b1722;
+  --deep: #10283a;
+  --foam: #eef4f1;
+  --muted: #9db2bd;
+  --brass: #d9a441;
+  --flare: #e4572e;
+  --tide: #3fa7a3;
+  --panel: rgba(11, 23, 34, .78);
+  --line: rgba(238, 244, 241, .16);
+  --display: "Black Han Sans", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+}
+html, body { height: 100%; }
+body { background: var(--ink); color: var(--foam); font-family: var(--body); overflow: hidden; }
+#app { position: relative; height: 100%; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; }
+button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+/* HUD */
+#hud { position: absolute; inset: 0 0 auto 0; padding-block: 10px; display: flex; gap: 8px; align-items: stretch; pointer-events: none; }
+.stat { flex: 1 1 0; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+.stat b { display: block; font-family: var(--display); font-weight: 400; font-size: clamp(1.2rem, 5vw, 1.9rem); line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stat span { font-size: .72rem; color: var(--muted); letter-spacing: .04em; white-space: nowrap; }
+.stat.warn b { color: var(--flare); }
+#hp { letter-spacing: .15em; color: var(--brass); }
+#pace { position: absolute; left: 0; right: 0; top: 74px; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
+#paceBar { position: relative; width: min(420px, 100%); height: 16px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); }
+#paceZone { position: absolute; top: 0; bottom: 0; left: 35%; width: 30%; background: var(--tide); opacity: .55; border-radius: 6px; }
+#paceMark { position: absolute; top: -4px; width: 4px; height: 22px; background: var(--brass); border-radius: 2px; left: 50%; }
+#paceText { font-size: .8rem; background: var(--panel); padding: 2px 10px; border-radius: 8px; font-variant-numeric: tabular-nums; }
+#caption { position: absolute; left: 0; right: 0; bottom: 150px; text-align: center; pointer-events: none; }
+#caption p { display: inline-block; margin: 0; max-width: 34ch; background: var(--panel); border-left: 4px solid var(--brass); padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 1.05rem; text-wrap: balance; }
+#mirrorTag { position: absolute; font-size: .68rem; color: var(--muted); background: var(--panel); padding: 1px 6px; border-radius: 4px; pointer-events: none; transform: translate(-50%, 4px); white-space: nowrap; }
+
+/* Controls */
+#controls { position: absolute; inset: auto 0 0 0; padding-block: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: 8px; }
+#controls button { min-height: 56px; font-weight: 700; touch-action: none; }
+#controls button.on { background: var(--brass); color: var(--ink); }
+#strokeBtn { font-family: var(--display); font-weight: 400; font-size: 1.3rem; background: var(--deep); border-color: var(--brass); }
+#looks { grid-column: 1 / -1; display: flex; gap: 8px; }
+#looks button { flex: 1 1 0; min-height: 40px; font-size: .85rem; font-weight: 500; }
+
+/* Overlays */
+.overlay { position: absolute; inset: 0; overflow-y: auto; background: linear-gradient(180deg, rgba(11,23,34,.55), rgba(11,23,34,.92) 45%); touch-action: pan-y; user-select: text; -webkit-user-select: text; }
+.sheet { max-width: 640px; margin: 0 auto; padding-block: 28px 40px; display: flex; flex-direction: column; gap: 18px; }
+h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2.6rem, 12vw, 4.4rem); line-height: 1; margin: 0; letter-spacing: .02em; text-wrap: balance; }
+h1 small { display: block; font-family: var(--body); font-size: .95rem; font-weight: 500; color: var(--brass); letter-spacing: .12em; margin-bottom: 8px; }
+h2 { font-size: .8rem; font-weight: 700; letter-spacing: .12em; color: var(--muted); margin: 0; }
+.lead { margin: 0; color: var(--muted); line-height: 1.6; max-width: 46ch; }
+.group { display: flex; flex-direction: column; gap: 8px; }
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.mode { text-align: left; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mode strong { font-family: var(--display); font-weight: 400; font-size: 1.35rem; }
+.mode em { font-style: normal; font-size: .85rem; color: var(--muted); line-height: 1.45; }
+.mode i { font-style: normal; font-size: .75rem; color: var(--tide); font-variant-numeric: tabular-nums; }
+.mode[aria-pressed="true"], .seg button[aria-pressed="true"] { border-color: var(--brass); background: rgba(217,164,65,.16); }
+.seg { display: flex; gap: 8px; flex-wrap: wrap; }
+.seg button { flex: 1 1 90px; padding: 10px; font-weight: 500; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row button { padding: 10px 14px; font-weight: 500; }
+.note { font-size: .82rem; color: var(--muted); margin: 0; line-height: 1.5; }
+.note.bad { color: var(--flare); }
+.go { font-family: var(--display); font-weight: 400; font-size: 1.6rem; padding: 14px; background: var(--brass); color: var(--ink); border-color: var(--brass); }
+details { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: var(--panel); }
+summary { cursor: pointer; font-weight: 700; }
+textarea { width: 100%; box-sizing: border-box; min-height: 180px; margin-block: 10px; font: .78rem/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--foam); background: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.result { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.result .stat b { font-size: 1.6rem; }
+@media (min-width: 800px) and (min-height: 500px) { #caption { bottom: 130px; } }
+@media (max-height: 460px) { #looks button { min-height: 32px; } #controls button { min-height: 44px; } #caption { bottom: 120px; } }
+</style>
+
+<div id="app">
+  <canvas id="view" aria-label="사공의 눈으로 본 바다"></canvas>
+
+  <div id="hud" class="gutter" hidden>
+    <div class="stat"><b id="sGoal">500 m</b><span id="sGoalL">항구까지</span></div>
+    <div class="stat" id="sGapBox"><b id="sGap">90 m</b><span id="sGapL">해적선 거리</span></div>
+    <div class="stat"><b id="sSplit">–:––</b><span>스플릿 · <span id="sSpm">0</span>spm</span></div>
+    <div class="stat" style="flex:0 0 auto"><b id="hp">●●●</b><span>선체</span></div>
+  </div>
+  <div id="pace" class="gutter" hidden>
+    <div id="paceBar"><div id="paceZone"></div><div id="paceMark"></div></div>
+    <div id="paceText">목표 2:30 /500m</div>
+  </div>
+  <div id="mirrorTag" hidden>거울: 배가 나아가는 쪽</div>
+  <div id="caption" class="gutter" hidden><p id="capText"></p></div>
+
+  <div id="controls" class="gutter" hidden>
+    <div id="looks">
+      <button id="lookL" type="button">◀ 왼쪽 보기</button>
+      <button id="lookB" type="button">뒤돌아보기</button>
+      <button id="lookR" type="button">오른쪽 보기 ▶</button>
+    </div>
+    <button id="steerL" type="button">◀ 키</button>
+    <button id="strokeBtn" type="button">노 젓기</button>
+    <button id="steerR" type="button">키 ▶</button>
+  </div>
+
+  <div id="menu" class="overlay">
+    <div class="sheet gutter">
+      <h1><small>CONCEPT2 PM5 로잉 게임 · 프로토타입</small>사공</h1>
+      <p class="lead">당신은 배 뒤쪽을 보고 앉은 사공입니다. 쫓아오는 배는 눈앞에 보이고, 배가 나아가는 쪽은 거울이나 고개를 돌려서 봐야 합니다. 로잉머신을 당긴 만큼 배가 나아갑니다.</p>
+
+      <div class="group">
+        <h2>모드</h2>
+        <div class="modes" id="modeList"></div>
+      </div>
+
+      <div class="group">
+        <h2>난이도</h2>
+        <div class="seg" id="diffList">
+          <button type="button" data-d="0.8">쉬움</button>
+          <button type="button" data-d="1">보통</button>
+          <button type="button" data-d="1.2">어려움</button>
+        </div>
+        <p class="note" id="diffNote"></p>
+      </div>
+
+      <div class="group">
+        <h2>입력</h2>
+        <div class="row">
+          <button type="button" id="pmBtn">PM5 블루투스 연결</button>
+          <button type="button" id="voiceBtn" aria-pressed="false">음성 명령 켜기</button>
+          <button type="button" id="autoBtn" aria-pressed="true">소리 나는 쪽 자동으로 보기: 켬</button>
+        </div>
+        <p class="note" id="pmNote">PM5가 없으면 화면의 노 젓기 버튼이나 스페이스바로 저을 수 있습니다.</p>
+        <p class="note" id="voiceNote">음성 명령: "왼쪽", "오른쪽", "뒤", "정면"은 시선, "키 왼쪽", "키 오른쪽"은 방향타.</p>
+      </div>
+
+      <button type="button" class="go" id="startBtn">출항</button>
+
+      <details>
+        <summary>내 모드 추가하기 (JSON)</summary>
+        <p class="note">아래 설정을 고쳐서 추가하면 새 모드가 목록에 생깁니다. id를 바꾸면 새 모드, 같은 id면 덮어씁니다. 이 기기 브라우저에만 저장됩니다.</p>
+        <textarea id="modeJson" spellcheck="false" aria-label="모드 설정 JSON"></textarea>
+        <div class="row">
+          <button type="button" id="modeAdd">모드 추가</button>
+          <button type="button" id="modeReset">내 모드 모두 지우기</button>
+        </div>
+        <p class="note" id="modeMsg"></p>
+      </details>
+    </div>
+  </div>
+
+  <div id="over" class="overlay" hidden>
+    <div class="sheet gutter">
+      <h1><small id="ovKicker"></small><span id="ovTitle"></span></h1>
+      <p class="lead" id="ovText"></p>
+      <div class="result">
+        <div class="stat"><b id="rDist">0 m</b><span>저은 거리</span></div>
+        <div class="stat"><b id="rTime">0:00</b><span>시간</span></div>
+        <div class="stat"><b id="rSplit">–:––</b><span>평균 /500m</span></div>
+        <div class="stat"><b id="rStrokes">0</b><span>스트로크</span></div>
+      </div>
+      <button type="button" class="go" id="againBtn">다시 출항</button>
+      <div class="row"><button type="button" id="menuBtn">모드 고르기</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const rand = (a, b) => a + Math.random() * (b - a);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('sagong.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('sagong.' + k, JSON.stringify(v)); } catch (e) {} }
+};
+const fmtSplit = v => { if (!(v > 0.3)) return '–:––'; const s = Math.round(500 / v); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+const fmtTime = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+const reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ================= Modes: plain data, so anyone can add one ================= */
+const MODES = new Map();
+function normalizeMode(m) {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) throw new Error('모드는 { } 로 감싼 설정이어야 합니다.');
+  if (!m.id || !m.name) throw new Error('id와 name이 필요합니다.');
+  const num = (v, d) => (Number.isFinite(+v) ? +v : d);
+  const look = Object.assign({ sky: '#4f8fc0', horizon: '#f0c79a', sea: '#1d5a6e', fog: [60, 230] }, m.look);
+  const goal = Object.assign({ distance: 500, label: '항구', kind: 'harbor' }, m.goal);
+  goal.distance = clamp(num(goal.distance, 500), 50, 20000);
+  const out = {
+    id: String(m.id), name: String(m.name), tagline: String(m.tagline || ''), custom: !!m.custom,
+    boat: m.boat === 'turtle' ? 'turtle' : 'skiff', look, goal,
+    lane: clamp(num(m.lane, 30), 6, 80), steer: m.steer !== false, hull: clamp(num(m.hull, 3), 1, 9),
+    pursuer: m.pursuer ? Object.assign({ gap: 90, speed: [2.5, 3.4], ramp: 150, label: '해적선' }, m.pursuer) : null,
+    cannon: m.cannon ? Object.assign({ every: [6, 11] }, m.cannon === true ? {} : m.cannon) : null,
+    rocks: (Array.isArray(m.rocks) ? m.rocks : []).map(r => ({ at: num(r.at, 0), x: num(r.x, 0), r: clamp(num(r.r, 2.5), 1, 8) })),
+    pace: null,
+    lines: (Array.isArray(m.lines) ? m.lines : []).map(l => ({ at: num(l.at, 0), say: String(l.say || '') })).sort((a, b) => a.at - b.at),
+    hooks: (m.hooks && typeof m.hooks === 'object') ? m.hooks : {}
+  };
+  if (m.pace && Array.isArray(m.pace.segments) && m.pace.segments.length) {
+    out.pace = { segments: m.pace.segments.map(s => ({ at: num(s.at, 0), target: clamp(num(s.target, 3), 1, 6), tol: clamp(num(s.tol, 0.5), 0.15, 2), spm: clamp(num(s.spm, 22), 12, 40), say: String(s.say || '') })).sort((a, b) => a.at - b.at) };
+  }
+  return out;
+}
+function registerMode(def) { const m = normalizeMode(def); MODES.set(m.id, m); if (typeof renderModes === 'function') renderModes(); return m; }
+
+const PIRATE = {
+  id: 'pirate-chase', name: '해적 추격', tagline: '해적선이 쫓아온다. 따라잡히기 전에 500m 앞 항구로 들어가라.',
+  look: { sky: '#3f7fb5', horizon: '#f3c592', sea: '#1c5c70' },
+  goal: { distance: 500, label: '항구', kind: 'harbor' },
+  lane: 30,
+  pursuer: { gap: 90, speed: [2.5, 3.4], ramp: 150, label: '해적선' },
+  cannon: { every: [6, 11] },
+  rocks: [{ at: 120, x: 5, r: 3 }, { at: 210, x: -6, r: 3.5 }, { at: 300, x: 2, r: 3 }, { at: 385, x: -3, r: 4 }, { at: 440, x: 8, r: 3 }],
+  lines: [{ at: 0, say: '해적이다! 항구까지 저어라!' }, { at: 250, say: '절반 왔다. 놈들이 속도를 올린다!' }, { at: 430, say: '등대가 보인다. 마지막이다!' }]
+};
+const TURTLE = {
+  id: 'turtle-ship', name: '거북선 격군', tagline: '북소리와 구령에 맞춰 저어라. 박자가 어긋나면 배가 암초 쪽으로 밀린다.',
+  boat: 'turtle', steer: false, lane: 12,
+  look: { sky: '#6d7f95', horizon: '#d9c2a3', sea: '#23515a', fog: [50, 200] },
+  goal: { distance: 400, label: '적진', kind: 'fleet' },
+  pace: { segments: [
+    { at: 0, target: 2.6, tol: 0.5, spm: 20, say: '북소리에 맞춰라! 천천히 나아간다.' },
+    { at: 90, target: 3.2, tol: 0.45, spm: 24, say: '좌현 세게! 물살이 빠르다.' },
+    { at: 190, target: 2.4, tol: 0.4, spm: 18, say: '암초 지대다. 힘을 빼고 박자만 맞춰라.' },
+    { at: 280, target: 3.6, tol: 0.5, spm: 28, say: '돌격! 적진으로 전력을 다해라!' }
+  ] },
+  lines: [{ at: 370, say: '적선이 코앞이다. 그대로 들이받아라!' }]
+};
+
+/* ================= Rower input: PM5 or simulated strokes ================= */
+const rower = { speed: 0, spm: 0, source: 'sim', sim: 0, lastStroke: -9, strokeT: 9, pmSpeed: 0, pmSeen: 0, pmState: 0, device: null };
+const strokeListeners = [];
+function onStroke() {
+  rower.strokeT = 0;
+  strokeListeners.forEach(f => f());
+}
+function simStroke() {
+  if (rower.source !== 'sim') return;
+  const now = performance.now() / 1000;
+  const gap = now - rower.lastStroke;
+  if (gap < 1.1) return;
+  rower.spm = gap < 6 ? Math.round(60 / gap) : 0;
+  rower.lastStroke = now;
+  rower.sim = Math.min(6, rower.sim + 1.3);
+  onStroke();
+}
+function updateRower(dt) {
+  const now = performance.now() / 1000;
+  rower.strokeT += dt;
+  if (rower.source === 'pm5') {
+    const stale = now - rower.pmSeen;
+    if (stale > 3) rower.pmSpeed *= Math.exp(-0.8 * dt);
+    rower.speed += (rower.pmSpeed - rower.speed) * Math.min(1, dt * 4);
+  } else {
+    rower.sim *= Math.exp(-0.22 * dt);
+    if (now - rower.lastStroke > 6) rower.spm = 0;
+    rower.speed += (rower.sim - rower.speed) * Math.min(1, dt * 5);
+  }
+}
+const PM = { SVC: 'ce060030-43e5-11e4-916c-0800200c9a66', GEN: 'ce060031-43e5-11e4-916c-0800200c9a66', ADD: 'ce060032-43e5-11e4-916c-0800200c9a66' };
+async function connectPM5() {
+  const note = $('pmNote');
+  note.classList.remove('bad');
+  if (!navigator.bluetooth) {
+    note.classList.add('bad');
+    note.textContent = '이 화면에서는 블루투스를 쓸 수 없습니다. 아이폰은 Bluefy 앱, PC와 안드로이드는 크롬에서 게임 주소를 직접 열어 주세요.';
+    return;
+  }
+  try {
+    note.textContent = 'PM5를 찾는 중입니다. PM5 화면에서 "연결" 메뉴를 열어 두세요.';
+    const dev = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'PM5' }], optionalServices: [PM.SVC] });
+    const server = await dev.gatt.connect();
+    const svc = await server.getPrimaryService(PM.SVC);
+    const gen = await svc.getCharacteristic(PM.GEN);
+    const add = await svc.getCharacteristic(PM.ADD);
+    gen.addEventListener('characteristicvaluechanged', e => {
+      const d = e.target.value; if (d.byteLength < 11) return;
+      const st = d.getUint8(10);               // 2 = driving
+      if (st === 2 && rower.pmState !== 2) onStroke();
+      rower.pmState = st;
+    });
+    add.addEventListener('characteristicvaluechanged', e => {
+      const d = e.target.value; if (d.byteLength < 6) return;
+      rower.pmSpeed = d.getUint16(3, true) / 1000;   // m/s
+      rower.spm = d.getUint8(5) === 255 ? 0 : d.getUint8(5);
+      rower.pmSeen = performance.now() / 1000;
+    });
+    await gen.startNotifications();
+    await add.startNotifications();
+    dev.addEventListener('gattserverdisconnected', () => {
+      rower.source = 'sim'; rower.device = null;
+      note.textContent = 'PM5 연결이 끊어졌습니다. 다시 연결하거나 버튼으로 저을 수 있습니다.';
+      $('pmBtn').textContent = 'PM5 블루투스 연결'; syncControls();
+    });
+    rower.device = dev; rower.source = 'pm5'; rower.pmSeen = performance.now() / 1000;
+    note.textContent = (dev.name || 'PM5') + '에 연결했습니다. 당기면 배가 나아갑니다.';
+    $('pmBtn').textContent = 'PM5 연결됨';
+    syncControls();
+  } catch (err) {
+    note.classList.add('bad');
+    note.textContent = err && err.name === 'NotFoundError' ? 'PM5를 고르지 않았습니다. 다시 눌러서 목록에서 PM5를 골라 주세요.' : 'PM5에 연결하지 못했습니다. (' + (err && err.message ? err.message : err) + ')';
+  }
+}
+
+/* ================= Sound (all synthesized) ================= */
+let AC = null, master = null, noiseBuf = null, ambient = null;
+function audio() {
+  if (!AC) {
+    const Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return null;
+    AC = new Ctx(); master = AC.createGain(); master.gain.value = 0.8; master.connect(AC.destination);
+    noiseBuf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate);
+    const ch = noiseBuf.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+  }
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function out(pan) {
+  if (AC.createStereoPanner) { const p = AC.createStereoPanner(); p.pan.value = clamp(pan || 0, -1, 1); p.connect(master); return p; }
+  return master;
+}
+function noise({ dur = 0.4, freq = 800, q = 0.8, gain = 0.4, pan = 0, type = 'lowpass', sweep = 0 }) {
+  const ac = audio(); if (!ac) return;
+  const t = ac.currentTime, src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+  src.buffer = noiseBuf; src.loop = true; f.type = type; f.frequency.value = freq; f.Q.value = q;
+  if (sweep) f.frequency.exponentialRampToValueAtTime(Math.max(40, freq * sweep), t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f); f.connect(g); g.connect(out(pan)); src.start(t, Math.random()); src.stop(t + dur + 0.05);
+}
+function tone({ f0 = 200, f1 = 60, dur = 0.4, gain = 0.5, pan = 0, type = 'sine' }) {
+  const ac = audio(); if (!ac) return;
+  const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+  g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(out(pan)); o.start(t); o.stop(t + dur + 0.05);
+}
+const snd = {
+  oar: () => noise({ dur: 0.55, freq: 1400, q: 0.6, gain: 0.22, type: 'bandpass', sweep: 0.4 }),
+  boom: pan => { tone({ f0: 110, f1: 30, dur: 0.9, gain: 0.7, pan }); noise({ dur: 0.7, freq: 500, gain: 0.5, pan, sweep: 0.2 }); },
+  splash: pan => noise({ dur: 0.9, freq: 2600, q: 0.5, gain: 0.5, pan, type: 'bandpass', sweep: 0.3 }),
+  crash: () => { noise({ dur: 0.6, freq: 300, gain: 0.8, sweep: 0.3 }); tone({ f0: 90, f1: 40, dur: 0.5, gain: 0.6, type: 'triangle' }); },
+  shout: pan => { tone({ f0: 520, f1: 640, dur: 0.14, gain: 0.18, pan, type: 'triangle' }); setTimeout(() => tone({ f0: 660, f1: 500, dur: 0.2, gain: 0.18, pan, type: 'triangle' }), 150); },
+  drum: () => { tone({ f0: 150, f1: 55, dur: 0.28, gain: 0.55 }); noise({ dur: 0.08, freq: 900, gain: 0.2 }); },
+  win: () => [392, 523, 659, 784].forEach((f, i) => setTimeout(() => tone({ f0: f, f1: f, dur: 0.35, gain: 0.25, type: 'triangle' }), i * 140)),
+  lose: () => [330, 262, 196].forEach((f, i) => setTimeout(() => tone({ f0: f, f1: f * 0.97, dur: 0.45, gain: 0.25, type: 'sawtooth' }), i * 200))
+};
+function ambientOn(on) {
+  const ac = audio(); if (!ac) return;
+  if (on && !ambient) {
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = noiseBuf; src.loop = true; f.type = 'lowpass'; f.frequency.value = 420; g.gain.value = 0.07;
+    src.connect(f); f.connect(g); g.connect(master); src.start(); ambient = { src, g };
+  } else if (!on && ambient) { try { ambient.src.stop(); } catch (e) {} ambient = null; }
+}
+
+/* ================= 3D scene ================= */
+const canvas = $('view');
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); }
+catch (e) { $('menu').querySelector('.lead').textContent = '이 기기에서는 3D 화면(WebGL)을 켤 수 없어 게임을 실행하지 못합니다.'; return; }
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xf0c79a, 60, 230);
+const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 900);
+camera.rotation.order = 'YXZ';
+const hemi = new THREE.HemisphereLight(0xdfefff, 0x1a3a4a, 0.95); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff0d0, 0.9); sun.position.set(-40, 60, 80); scene.add(sun);
+const mat = (c, o) => new THREE.MeshLambertMaterial(Object.assign({ color: c, flatShading: true }, o));
+const box = (w, h, d, c, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c)); m.position.set(x, y, z); return m; };
+
+// Sky dome
+const skyGeo = new THREE.SphereGeometry(500, 24, 12);
+skyGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(skyGeo.attributes.position.count * 3), 3));
+const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+scene.add(sky);
+const sunDisc = new THREE.Mesh(new THREE.CircleGeometry(22, 24), new THREE.MeshBasicMaterial({ color: 0xfff3d6, fog: false }));
+scene.add(sunDisc);
+function paintSky(top, horizon) {
+  const a = new THREE.Color(horizon), b = new THREE.Color(top), c = new THREE.Color(), p = skyGeo.attributes.position, col = skyGeo.attributes.color;
+  for (let i = 0; i < p.count; i++) { const t = clamp(p.getY(i) / 260, 0, 1); c.copy(a).lerp(b, Math.pow(t, 0.7)); col.setXYZ(i, c.r, c.g, c.b); }
+  col.needsUpdate = true; scene.fog.color.copy(a);
+}
+
+// Sea
+const SEA = 420, SEG = 84, CELL = SEA / SEG;
+const seaGeo = new THREE.PlaneGeometry(SEA, SEA, SEG, SEG); seaGeo.rotateX(-Math.PI / 2);
+const seaMat = new THREE.MeshPhongMaterial({ color: 0x1d5a6e, flatShading: true, shininess: 60, specular: 0x88aabb });
+const sea = new THREE.Mesh(seaGeo, seaMat); scene.add(sea);
+const waveH = (x, z, t) => 0.22 * Math.sin(x * 0.11 + t * 0.9) + 0.17 * Math.sin(z * 0.16 + t * 1.1) + 0.09 * Math.sin((x + z) * 0.29 + t * 1.7);
+function updateSea(bx, bz, t) {
+  sea.position.set(Math.round(bx / CELL) * CELL, 0, Math.round(bz / CELL) * CELL);
+  const p = seaGeo.attributes.position, ox = sea.position.x, oz = sea.position.z;
+  for (let i = 0; i < p.count; i++) p.setY(i, waveH(p.getX(i) + ox, p.getZ(i) + oz, t));
+  p.needsUpdate = true;
+}
+
+// Own boat (forward is -Z; the rower faces +Z, toward the stern)
+const boat = new THREE.Group(); scene.add(boat);
+const WOOD = 0x8a5a33, WOOD_D = 0x5e3b20, BRASS = 0xd9a441;
+const hullParts = new THREE.Group(); boat.add(hullParts);
+function buildOwnBoat(kind) {
+  while (hullParts.children.length) hullParts.remove(hullParts.children[0]);
+  const w = kind === 'turtle' ? 1.5 : 0.95;
+  hullParts.add(box(0.12, 0.5, 6.2, WOOD, w, 0.45, 0), box(0.12, 0.5, 6.2, WOOD, -w, 0.45, 0));
+  hullParts.add(box(w * 2, 0.08, 6.2, WOOD_D, 0, 0.18, 0));
+  hullParts.add(box(w * 2 + 0.12, 0.6, 0.14, WOOD, 0, 0.5, 3.1));
+  hullParts.add(box(w * 2, 0.1, 0.35, WOOD_D, 0, 0.5, 1.9), box(0.5, 0.3, 0.12, WOOD_D, 0, 0.36, 1.35));
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(w + 0.06, 1.6, 4), mat(WOOD)); bow.rotation.x = -Math.PI / 2; bow.rotation.y = Math.PI / 4; bow.scale.set(1, 1, 0.42); bow.position.set(0, 0.45, -3.9);
+  hullParts.add(bow);
+  if (kind === 'turtle') {
+    for (let i = 0; i < 5; i++) { hullParts.add(box(0.14, 0.9, 0.14, WOOD_D, w, 1.1, -2.6 + i * 1.4), box(0.14, 0.9, 0.14, WOOD_D, -w, 1.1, -2.6 + i * 1.4)); }
+    hullParts.add(box(0.2, 0.16, 6.2, WOOD_D, w, 1.6, 0), box(0.2, 0.16, 6.2, WOOD_D, -w, 1.6, 0));
+    const head = new THREE.Group();
+    head.add(box(0.7, 0.7, 1.2, 0x3d6b4a, 0, 0, 0), box(0.5, 0.25, 0.6, BRASS, 0, -0.1, -0.8), box(0.12, 0.3, 0.12, BRASS, 0.25, 0.5, 0.3), box(0.12, 0.3, 0.12, BRASS, -0.25, 0.5, 0.3));
+    head.position.set(0, 1.9, -4.2); hullParts.add(head);
+  }
+}
+const oars = [];
+function makeOar(s, x, z, crew) {
+  const g = new THREE.Group(); g.rotation.order = 'YZX'; g.position.set(s * x, 0.98, z);
+  const len = crew ? 3.0 : 3.6;
+  g.add(box(len + 0.75, 0.07, 0.07, 0xc9a26b, s * (len - 0.75) / 2, 0, 0), box(0.75, 0.04, 0.28, 0xb5482f, s * (len - 0.3), 0, 0));
+  g.userData = { s, crew: !!crew };
+  boat.add(g); oars.push(g); return g;
+}
+function buildOars(kind) {
+  oars.splice(0).forEach(o => boat.remove(o));
+  const w = kind === 'turtle' ? 1.5 : 0.95;
+  makeOar(1, w, 1.35, false); makeOar(-1, w, 1.35, false);
+  if (kind === 'turtle') for (let i = 0; i < 3; i++) { makeOar(1, w, 2.2 + i * 1.3 - 5.2, true); makeOar(-1, w, 2.2 + i * 1.3 - 5.2, true); }
+}
+function poseOar(o, phase) {           // phase 0..1 drive, 1..2 recovery
+  const s = o.userData.s; let a, dip;
+  if (phase < 1) { const e = phase * phase * (3 - 2 * phase); a = lerp(-0.5, 0.5, e); dip = 0.2; }
+  else { const e = clamp(phase - 1, 0, 1); a = lerp(0.5, -0.5, e * e * (3 - 2 * e)); dip = -0.06; }
+  o.rotation.y = -s * a; o.rotation.z = -s * dip;
+}
+
+// Mirror: a real mirror on the boat showing where the boat is heading
+const mirrorRT = new THREE.WebGLRenderTarget(384, 192);
+mirrorRT.texture.wrapS = THREE.RepeatWrapping; mirrorRT.texture.repeat.x = -1;
+const mirrorCam = new THREE.PerspectiveCamera(46, 2, 0.5, 700); mirrorCam.position.set(0, 1.9, -4.4); boat.add(mirrorCam);
+const mirror = new THREE.Group(); boat.add(mirror);
+const mirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.5), new THREE.MeshBasicMaterial({ map: mirrorRT.texture, fog: false }));
+mirrorGlass.rotation.y = Math.PI; mirror.add(mirrorGlass);
+const mirrorFrame = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.58, 0.04), new THREE.MeshBasicMaterial({ color: BRASS, fog: false })); mirrorFrame.position.z = 0.03; mirror.add(mirrorFrame);
+const mirrorPole = box(0.04, 2, 0.04, BRASS, 0, -1.25, 0.05); mirror.add(mirrorPole);
+const CAM = { y: 1.25, z: 0.15 };
+boat.add(camera); camera.position.set(0, CAM.y, CAM.z);
+
+// World objects for the current mode
+const world = new THREE.Group(); scene.add(world);
+function buildShip(o) {
+  const g = new THREE.Group(), hull = o.hull || 0x2a1d14, sail = o.sail || 0x1b1b1f;
+  g.add(box(5, 3, 14, hull, 0, 1, 0), box(5.4, 2, 4, hull, 0, 3.2, 5.2), box(5.3, 0.3, 14.2, o.trim || 0x8a2a1c, 0, 2.5, 0));
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(3.5, 6, 4), mat(hull)); bow.rotation.x = -Math.PI / 2; bow.rotation.y = Math.PI / 4; bow.scale.set(1, 1, 0.6); bow.position.set(0, 1, -9.8); g.add(bow);
+  [-3.5, 2.5].forEach((z, i) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.28, 15, 6), mat(0x3b2a1c)); m.position.set(0, 9.5, z); g.add(m);
+    g.add(box(8 - i, 5, 0.2, sail, 0, 8, z - 0.4), box(6 - i, 3.4, 0.2, sail, 0, 13, z - 0.4));
+  });
+  g.add(box(2.2, 1.3, 0.1, o.flag || 0xb5482f, 1.2, 17.2, -3.5));
+  return g;
+}
+function buildHarbor(z) {
+  const g = new THREE.Group();
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(2, 3, 22, 10), mat(0xf2ede4)); tower.position.set(-16, 11, -8); g.add(tower);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(2.45, 2.75, 5, 10), mat(0xb5482f)); band.position.set(-16, 11, -8); g.add(band);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(1.6, 8, 6), new THREE.MeshBasicMaterial({ color: 0xfff1a8, fog: false })); lamp.position.set(-16, 23.5, -8); g.add(lamp);
+  g.add(box(60, 2.4, 6, 0x6b6257, -42, 1, -6), box(60, 2.4, 6, 0x6b6257, 42, 1, -6));
+  g.add(box(10, 5, 8, 0xd8c9a8, 24, 4, -12), box(8, 4, 7, 0xc7b08a, 35, 3.5, -12), box(12, 1.5, 9, 0x8a2a1c, 24, 7.2, -12));
+  g.add(box(2.4, 0.3, 26, WOOD, 13, 0.9, 6), box(2.4, 0.3, 26, WOOD, -13, 0.9, 6));
+  g.position.z = z; return g;
+}
+function buildFleet(z) {
+  const g = new THREE.Group();
+  [-26, 0, 26].forEach((x, i) => { const s = buildShip({ hull: 0x3a2a2a, sail: 0xd9d2c0, trim: 0x222222, flag: 0xffffff }); s.rotation.y = Math.PI / 2 * (i === 1 ? 1 : 0.8); s.position.set(x, 0, -14 - (i === 1 ? 6 : 0)); g.add(s); });
+  g.position.z = z; return g;
+}
+function buildRock(r) {
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), mat(0x4a4f52));
+  m.scale.set(1, rand(0.6, 0.9), rand(0.8, 1.15)); m.rotation.y = rand(0, 3); return m;
+}
+const splashes = [];
+for (let i = 0; i < 6; i++) {
+  const m = new THREE.Mesh(new THREE.ConeGeometry(1.2, 5, 7), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, fog: false }));
+  m.visible = false; scene.add(m); splashes.push({ m, t: 9 });
+}
+function splashAt(x, z) { const s = splashes.reduce((a, b) => (b.t > a.t ? b : a)); s.t = 0; s.m.position.set(x, 0, z); s.m.visible = true; }
+
+/* ================= Game state ================= */
+const settings = { mode: store.get('mode', 'pirate-chase'), diff: store.get('diff', 1), autoLook: store.get('autoLook', true), voice: false };
+let S = null, phase = 'menu', worldT = 0, pursuerMesh = null;
+const head = { yaw: 0, hold: null, drag: null, voice: null, auto: null };
+const steer = { l: false, r: false, voice: 0, voiceUntil: 0, vis: 0 };
+let shake = 0, capUntil = 0, drumT = 0, crewPhase = 0;
+
+function say(text, dur = 3.2) { if (!text) return; $('capText').textContent = text; $('caption').hidden = false; capUntil = worldT + dur; }
+function bearing(x, z) { return clamp(Math.atan2(x - S.x, z - (-S.dist)), -2.95, 2.95); }   // yaw from "facing the stern"
+function panOf(yaw) { return clamp(-Math.sin(yaw - head.yaw), -1, 1); }
+function lookAt(yaw, dur = 1.7) { if (settings.autoLook) head.auto = { yaw, until: worldT + dur }; }
+const api = {
+  get state() { return S; }, say, lookAt: (x, z, d) => lookAt(bearing(x, z), d),
+  splash(x, z) { splashAt(x, z); snd.splash(panOf(bearing(x, z))); }, boom: () => snd.boom(0),
+  slow(f) { S.pen = Math.min(S.pen, clamp(f, 0.1, 1)); }, win: t => end(true, t), lose: t => end(false, t)
+};
+
+function startGame() {
+  const mode = MODES.get(settings.mode) || MODES.get('pirate-chase');
+  audio(); ambientOn(true);
+  while (world.children.length) world.remove(world.children[0]);
+  paintSky(mode.look.sky, mode.look.horizon); seaMat.color.set(mode.look.sea);
+  scene.fog.near = mode.look.fog[0]; scene.fog.far = mode.look.fog[1];
+  buildOwnBoat(mode.boat); buildOars(mode.boat); layoutMirror();
+  S = { mode, t: 0, dist: 0, x: 0, speed: 0, gap: mode.pursuer ? mode.pursuer.gap : 0, hp: mode.hull, pen: 1, strokes: 0, line: 0, seg: -1, cannonT: rand(5, 8), shots: [], rocks: [], over: false };
+  mode.rocks.forEach(r => { const m = buildRock(r.r); m.position.set(r.x, -0.3, -r.at); world.add(m); S.rocks.push({ at: r.at, x: r.x, r: r.r, m, hit: false, warned: false }); });
+  if (mode.pace) for (let z = -30; z < mode.goal.distance + 20; z += 11) [1, -1].forEach(s => { const m = buildRock(rand(2, 3.4)); m.position.set(s * (mode.lane + 3.5 + rand(0, 2)), -0.4, -z - rand(0, 4)); world.add(m); });
+  world.add(mode.goal.kind === 'fleet' ? buildFleet(-mode.goal.distance - 10) : buildHarbor(-mode.goal.distance - 6));
+  pursuerMesh = null;
+  if (mode.pursuer) { pursuerMesh = buildShip({}); world.add(pursuerMesh); }
+  rower.sim = 0; rower.speed = 0; rower.spm = rower.source === 'sim' ? 0 : rower.spm; head.yaw = 0; head.auto = null; shake = 0; drumT = 0;
+  $('sGoalL').textContent = mode.goal.label + '까지';
+  $('sGapBox').hidden = !mode.pursuer; if (mode.pursuer) $('sGapL').textContent = mode.pursuer.label + ' 거리';
+  $('pace').hidden = !mode.pace;
+  phase = 'playing'; $('menu').hidden = true; $('over').hidden = true; $('hud').hidden = false; $('controls').hidden = false; $('mirrorTag').hidden = false;
+  syncControls();
+  if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});
+  try { if (mode.hooks.onStart) mode.hooks.onStart(api); } catch (e) { console.error(e); }
+}
+function end(won, text) {
+  if (!S || S.over) return; S.over = true; phase = 'over';
+  ambientOn(false); (won ? snd.win : snd.lose)();
+  try { if (S.mode.hooks.onEnd) S.mode.hooks.onEnd(api, won); } catch (e) { console.error(e); }
+  $('ovKicker').textContent = S.mode.name; $('ovTitle').textContent = won ? '성공' : '실패'; $('ovText').textContent = text;
+  $('rDist').textContent = Math.round(S.dist) + ' m'; $('rTime').textContent = fmtTime(S.t);
+  $('rSplit').textContent = fmtSplit(S.dist / Math.max(1, S.t)); $('rStrokes').textContent = S.strokes;
+  $('hud').hidden = true; $('controls').hidden = true; $('caption').hidden = true; $('pace').hidden = true; $('mirrorTag').hidden = true; $('over').hidden = false;
+}
+function hurt(text) {
+  S.hp -= 1; S.pen = 0.3; shake = 0.5; snd.crash(); say(text);
+  if (S.hp <= 0) end(false, '선체가 부서져 배가 가라앉았습니다.');
+}
+strokeListeners.push(() => { if (phase === 'playing') { S.strokes++; snd.oar(); try { if (S.mode.hooks.onStroke) S.mode.hooks.onStroke(api); } catch (e) {} } });
+
+function tick(dt) {
+  const mode = S.mode, diff = settings.diff;
+  S.t += dt; S.pen = Math.min(1, S.pen + 0.15 * dt);
+  let v = rower.speed * S.pen, seg = null;
+  if (mode.pace) {
+    const segs = mode.pace.segments; let i = 0; while (i + 1 < segs.length && S.dist >= segs[i + 1].at) i++;
+    seg = segs[i]; if (i !== S.seg) { S.seg = i; say(seg.say, 4); snd.shout(0); }
+    const target = seg.target * (0.85 + 0.15 * diff), tol = seg.tol / diff;
+    const e = (rower.speed - target) / tol;
+    const off = Math.abs(e) > 1 ? Math.min(2, Math.abs(e) - 1) : 0;
+    if (S.t > 6) { if (off) S.x += -Math.sign(e) * (0.9 + 1.6 * off) * dt; else S.x -= Math.sign(S.x) * Math.min(Math.abs(S.x), 0.8 * dt); }
+    v = (0.5 * target + 0.5 * rower.speed) * S.pen;
+    $('paceMark').style.left = clamp(50 + e * 15, 2, 98) + '%';
+    $('paceText').textContent = '목표 ' + fmtSplit(target) + ' /500m · ' + (off ? (e < 0 ? '더 세게!' : '힘을 빼라!') : '좋다, 그대로');
+    drumT -= dt; if (drumT <= 0) { drumT = 60 / seg.spm; snd.drum(); crewPhase = 0; }
+    if (Math.abs(S.x) > mode.lane) { S.x = Math.sign(S.x) * (mode.lane - 5); hurt('암초에 부딪혔다! 박자를 맞춰라!'); }
+  }
+  S.speed += (v - S.speed) * Math.min(1, dt * 3);
+  S.dist += S.speed * dt;
+  if (mode.steer) {
+    let dir = (steer.l ? 1 : 0) - (steer.r ? 1 : 0);
+    if (!dir && worldT < steer.voiceUntil) dir = steer.voice;
+    steer.vis += (dir - steer.vis) * Math.min(1, dt * 5);
+    S.x = clamp(S.x + dir * (1.2 + 0.6 * S.speed) * dt, -mode.lane, mode.lane);
+  } else steer.vis *= 0.9;
+
+  if (mode.pursuer) {
+    const p = mode.pursuer, vp = lerp(p.speed[0], p.speed[1], clamp(S.t / p.ramp, 0, 1)) * diff;
+    if (S.t > 4) S.gap = Math.min(220, S.gap - (vp - S.speed) * dt);
+    if (S.gap <= 11) return end(false, p.label + '에게 따라잡혔습니다. 항구까지 ' + Math.max(0, Math.round(mode.goal.distance - S.dist)) + 'm 남았습니다.');
+    if (mode.cannon && S.t > 6) {
+      S.cannonT -= dt;
+      if (S.cannonT <= 0) {
+        S.cannonT = rand(mode.cannon.every[0], mode.cannon.every[1]) / diff; snd.boom(panOf(0)); shake = Math.max(shake, 0.08);
+        const side = Math.random() < 0.5 ? 1 : -1, near = Math.random() < 0.25 * diff;
+        S.shots.push({ t: 1.3, dx: side * (near ? rand(1.5, 3.5) : rand(5, 11)), dz: rand(-5, 7) });
+      }
+    }
+  }
+  for (let i = S.shots.length - 1; i >= 0; i--) {
+    const s = S.shots[i]; s.t -= dt;
+    if (s.t <= 0) {
+      S.shots.splice(i, 1); const x = S.x + s.dx, z = -S.dist + s.dz, yaw = bearing(x, z);
+      splashAt(x, z); snd.splash(panOf(yaw)); lookAt(yaw);
+      if (Math.abs(s.dx) < 4) { S.pen = Math.min(S.pen, 0.6); shake = 0.3; say('포탄이 바로 옆에 떨어졌다! 물벼락에 속도가 줄었다.'); }
+    }
+  }
+  for (const r of S.rocks) {
+    if (r.hit) continue; const dz = r.at - S.dist, dx = r.x - S.x;
+    if (!r.warned && dz < 75 && dz > 0 && Math.abs(dx) < r.r + 5) {
+      r.warned = true; const yaw = bearing(r.x, -r.at); snd.shout(panOf(yaw)); lookAt(yaw, 2.2);
+      say('앞에 바위! 키를 ' + (dx >= 0 ? '오른쪽' : '왼쪽') + '으로!');
+    }
+    if (Math.abs(dz) < 2.2 && Math.abs(dx) < r.r + 0.9) { r.hit = true; hurt('바위에 부딪혔다!'); if (S.over) return; }
+  }
+  while (S.line < mode.lines.length && S.dist >= mode.lines[S.line].at) { say(mode.lines[S.line].say, 3.6); S.line++; }
+  try { if (mode.hooks.onTick) mode.hooks.onTick(api, dt); } catch (e) { console.error(e); mode.hooks.onTick = null; }
+  if (!S.over && S.dist >= mode.goal.distance) end(true, mode.goal.kind === 'fleet' ? '격군들이 한 몸처럼 저어 적진을 돌파했습니다.' : '항구에 들어섰습니다. 해적선이 뱃머리를 돌립니다.');
+}
+
+function updateHud() {
+  const m = S.mode;
+  $('sGoal').textContent = Math.max(0, Math.round(m.goal.distance - S.dist)) + ' m';
+  if (m.pursuer) { $('sGap').textContent = Math.max(0, Math.round(S.gap - 11)) + ' m'; $('sGapBox').classList.toggle('warn', S.gap < 40); }
+  $('sSplit').textContent = fmtSplit(rower.speed); $('sSpm').textContent = rower.spm || 0;
+  $('hp').textContent = '●'.repeat(Math.max(0, S.hp)) + '○'.repeat(Math.max(0, m.hull - S.hp));
+}
+
+/* ================= Frame loop ================= */
+let last = performance.now(), hudT = 0;
+function layoutMirror() {
+  const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1, asp = w / h;
+  camera.aspect = asp; camera.fov = asp < 1 ? 82 : 68; camera.updateProjectionMatrix();
+  const halfV = camera.fov * Math.PI / 360, halfH = Math.atan(Math.tan(halfV) * asp), d = 1.7;
+  const width = clamp(2 * d * Math.tan(halfH * 0.36), 0.42, 1.25);
+  mirror.scale.set(width, width, 1);
+  mirror.position.set(-Math.tan(halfH * 0.5) * d, CAM.y + Math.tan(halfV * 0.36) * d, CAM.z + d);
+  mirrorPole.scale.y = 1 / width; mirrorPole.position.y = -0.29 - 1 / width;
+}
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return;
+  renderer.setSize(w, h, false); layoutMirror();
+}
+window.addEventListener('resize', resize); resize();
+const v3 = new THREE.Vector3();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; worldT += dt;
+  if (canvas.width !== Math.floor(canvas.clientWidth * renderer.getPixelRatio())) resize();
+  updateRower(dt);
+  if (phase === 'playing') { tick(dt); hudT -= dt; if (hudT <= 0 && S && !S.over) { hudT = 0.15; updateHud(); } }
+  if (worldT > capUntil) $('caption').hidden = true;
+
+  const bx = S ? S.x : 0, bz = S ? -S.dist : -worldT * 1.2, calm = reduceMotion ? 0.3 : 1;
+  boat.position.set(bx, waveH(bx, bz, worldT) * 0.5 * calm + 0.05, bz);
+  boat.rotation.z = Math.sin(worldT * 0.9) * 0.02 * calm - steer.vis * 0.04; boat.rotation.x = Math.sin(worldT * 0.7 + 1) * 0.012 * calm;
+  boat.rotation.y = steer.vis * 0.06;
+  updateSea(bx, bz, worldT);
+  sky.position.set(bx, 0, bz); sunDisc.position.set(bx - 120, 70, bz + 380); sunDisc.lookAt(bx, 20, bz);
+
+  // Oars: the player's pair follows the stroke, crew oars follow the drum
+  const ph = rower.strokeT < 0.75 ? rower.strokeT / 0.75 : 1 + Math.min(1, (rower.strokeT - 0.75) / 1.1);
+  crewPhase += dt; const cph = crewPhase < 0.75 ? crewPhase / 0.75 : 1 + Math.min(1, (crewPhase - 0.75) / 1.1);
+  oars.forEach(o => poseOar(o, o.userData.crew ? cph : ph));
+
+  // Head
+  let target = 0;
+  if (head.drag) target = head.drag.yaw; else if (head.hold != null) target = head.hold;
+  else if (head.voice && worldT < head.voice.until) target = head.voice.yaw;
+  else if (head.auto && worldT < head.auto.until && settings.autoLook) target = head.auto.yaw;
+  head.yaw += (target - head.yaw) * Math.min(1, dt * 6);
+  shake = Math.max(0, shake - dt * 0.8); const sh = reduceMotion ? 0 : shake;
+  camera.position.set(rand(-sh, sh) * 0.2, CAM.y + rand(-sh, sh) * 0.2, CAM.z);
+  camera.rotation.set(-0.1, Math.PI + head.yaw, 0);
+
+  if (S && pursuerMesh) {
+    pursuerMesh.position.x += (S.x - pursuerMesh.position.x) * Math.min(1, dt * 0.5);
+    pursuerMesh.position.z = -S.dist + S.gap; pursuerMesh.position.y = Math.sin(worldT * 0.8) * 0.3 - 0.4; pursuerMesh.rotation.z = Math.sin(worldT * 0.6) * 0.03;
+  }
+  splashes.forEach(s => { if (!s.m.visible) return; s.t += dt; const k = s.t / 1.1; if (k >= 1) { s.m.visible = false; return; } s.m.scale.set(1 + k * 1.6, Math.sin(k * Math.PI) * 1.5 + 0.1, 1 + k * 1.6); s.m.position.y = s.m.scale.y * 2.5 - 0.3; s.m.material.opacity = 0.85 * (1 - k); });
+
+  mirror.visible = false; renderer.setRenderTarget(mirrorRT); renderer.render(scene, mirrorCam);
+  renderer.setRenderTarget(null); mirror.visible = true; renderer.render(scene, camera);
+
+  if (phase === 'playing') {
+    mirrorGlass.getWorldPosition(v3); v3.y -= 0.25 * mirror.scale.y; v3.project(camera);
+    const tag = $('mirrorTag'), vis = v3.z < 1 && Math.abs(v3.x) < 0.95 && Math.abs(v3.y) < 0.95;
+    tag.style.opacity = vis ? 1 : 0; tag.style.left = (v3.x * 0.5 + 0.5) * canvas.clientWidth + 'px'; tag.style.top = (-v3.y * 0.5 + 0.5) * canvas.clientHeight + 'px';
+  }
+}
+
+/* ================= Controls ================= */
+function hold(el, down, up) {
+  el.addEventListener('pointerdown', e => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (x) {} el.classList.add('on'); down(); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(n => el.addEventListener(n, () => { el.classList.remove('on'); up(); }));
+}
+hold($('lookL'), () => head.hold = 1.45, () => head.hold = null);
+hold($('lookR'), () => head.hold = -1.45, () => head.hold = null);
+hold($('lookB'), () => head.hold = 2.9, () => head.hold = null);
+hold($('steerL'), () => steer.l = true, () => steer.l = false);
+hold($('steerR'), () => steer.r = true, () => steer.r = false);
+$('strokeBtn').addEventListener('pointerdown', e => { e.preventDefault(); audio(); simStroke(); });
+canvas.addEventListener('pointerdown', e => { if (phase !== 'playing') return; head.drag = { x0: e.clientX, yaw: 0 }; try { canvas.setPointerCapture(e.pointerId); } catch (x) {} });
+canvas.addEventListener('pointermove', e => { if (head.drag) head.drag.yaw = clamp(-(e.clientX - head.drag.x0) / Math.max(200, canvas.clientWidth) * 4.5, -2.95, 2.95); });
+['pointerup', 'pointercancel'].forEach(n => canvas.addEventListener(n, () => head.drag = null));
+const keys = { KeyA: () => head.hold = 1.45, KeyD: () => head.hold = -1.45, KeyS: () => head.hold = 2.9, ArrowLeft: () => steer.l = true, ArrowRight: () => steer.r = true };
+const keysUp = { KeyA: () => head.hold = null, KeyD: () => head.hold = null, KeyS: () => head.hold = null, ArrowLeft: () => steer.l = false, ArrowRight: () => steer.r = false };
+window.addEventListener('keydown', e => {
+  if (phase !== 'playing' || e.target.tagName === 'TEXTAREA') return;
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) simStroke(); }
+  else if (keys[e.code]) { e.preventDefault(); keys[e.code](); }
+});
+window.addEventListener('keyup', e => { if (keysUp[e.code]) keysUp[e.code](); });
+function syncControls() {
+  const m = S && S.mode, pm = rower.source === 'pm5';
+  $('strokeBtn').textContent = pm ? 'PM5로 젓는 중' : '노 젓기'; $('strokeBtn').disabled = pm;
+  $('steerL').style.visibility = $('steerR').style.visibility = (m && !m.steer) ? 'hidden' : 'visible';
+}
+
+// Voice commands (Korean)
+let recog = null;
+function voiceCommand(text) {
+  const t = text.replace(/\s/g, ''); const left = t.includes('왼'), right = t.includes('오른');
+  if (t.includes('키') || t.includes('방향')) { if (left || right) { steer.voice = left ? 1 : -1; steer.voiceUntil = worldT + 1.6; } return; }
+  if (t.includes('정면') || t.includes('그만')) head.voice = null;
+  else if (t.includes('뒤') || t.includes('앞')) head.voice = { yaw: 2.9, until: worldT + 3 };
+  else if (left) head.voice = { yaw: 1.45, until: worldT + 3 };
+  else if (right) head.voice = { yaw: -1.45, until: worldT + 3 };
+}
+function setVoice(on) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition, note = $('voiceNote'), btn = $('voiceBtn');
+  note.classList.remove('bad');
+  if (on && !SR) { note.classList.add('bad'); note.textContent = '이 브라우저는 음성 인식을 지원하지 않습니다. 버튼이나 화면을 좌우로 끌어서 시선을 돌릴 수 있습니다.'; return; }
+  settings.voice = on; btn.setAttribute('aria-pressed', on); btn.textContent = on ? '음성 명령 끄기' : '음성 명령 켜기';
+  if (!on) { if (recog) { recog.onend = null; try { recog.stop(); } catch (e) {} recog = null; } return; }
+  recog = new SR(); recog.lang = 'ko-KR'; recog.continuous = true; recog.interimResults = true;
+  recog.onresult = e => { const r = e.results[e.results.length - 1]; if (r && r[0]) voiceCommand(r[0].transcript); };
+  recog.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { note.classList.add('bad'); note.textContent = '마이크 사용이 허용되지 않아 음성 명령을 켤 수 없습니다.'; setVoice(false); } };
+  recog.onend = () => { if (settings.voice && recog) { try { recog.start(); } catch (e) {} } };
+  try { recog.start(); } catch (e) { setVoice(false); }
+}
+
+/* ================= Menu ================= */
+function renderModes() {
+  const list = $('modeList'); if (!list) return; list.textContent = '';
+  if (!MODES.has(settings.mode)) settings.mode = 'pirate-chase';
+  MODES.forEach(m => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'mode'; b.setAttribute('aria-pressed', m.id === settings.mode);
+    const s = document.createElement('strong'); s.textContent = m.name;
+    const em = document.createElement('em'); em.textContent = m.tagline;
+    const i = document.createElement('i'); i.textContent = m.goal.distance + 'm' + (m.custom ? ' · 내 모드' : '');
+    b.append(s, em, i); b.addEventListener('click', () => { settings.mode = m.id; store.set('mode', m.id); renderModes(); renderDiff(); });
+    list.append(b);
+  });
+}
+function renderDiff() {
+  document.querySelectorAll('#diffList button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.d === settings.diff));
+  const m = MODES.get(settings.mode); let t = '';
+  if (m && m.pursuer) t = '추격선은 500m당 ' + fmtSplit(m.pursuer.speed[0] * settings.diff) + ' 페이스로 시작해 ' + fmtSplit(m.pursuer.speed[1] * settings.diff) + '까지 빨라집니다.';
+  else if (m && m.pace) t = '구령이 요구하는 페이스는 500m당 ' + m.pace.segments.map(s => fmtSplit(s.target * (0.85 + 0.15 * settings.diff))).join(' → ') + ' 입니다.';
+  $('diffNote').textContent = t;
+}
+document.querySelectorAll('#diffList button').forEach(b => b.addEventListener('click', () => { settings.diff = +b.dataset.d; store.set('diff', settings.diff); renderDiff(); }));
+$('pmBtn').addEventListener('click', connectPM5);
+$('voiceBtn').addEventListener('click', () => setVoice(!settings.voice));
+$('autoBtn').addEventListener('click', () => { settings.autoLook = !settings.autoLook; store.set('autoLook', settings.autoLook); syncAuto(); });
+function syncAuto() { $('autoBtn').setAttribute('aria-pressed', settings.autoLook); $('autoBtn').textContent = '소리 나는 쪽 자동으로 보기: ' + (settings.autoLook ? '켬' : '끔'); }
+$('startBtn').addEventListener('click', startGame);
+$('againBtn').addEventListener('click', startGame);
+$('menuBtn').addEventListener('click', () => { phase = 'menu'; $('over').hidden = true; $('menu').hidden = false; });
+
+// Custom modes
+const EXAMPLE = { id: 'my-night-escape', name: '한밤의 탈출', tagline: '달빛 아래 800m. 바위가 많다.', look: { sky: '#0d1b33', horizon: '#3b4a6b', sea: '#0f2f3d' }, goal: { distance: 800, label: '등대' }, pursuer: { gap: 120, speed: [2.4, 3.2], ramp: 240, label: '추격선' }, cannon: { every: [8, 14] }, rocks: [{ at: 150, x: 4, r: 3 }, { at: 320, x: -5, r: 4 }, { at: 520, x: 0, r: 3 }, { at: 700, x: 6, r: 3 }], lines: [{ at: 0, say: '불을 끄고 조용히 저어라.' }, { at: 600, say: '등대 불빛이 보인다!' }] };
+$('modeJson').value = JSON.stringify(EXAMPLE, null, 2);
+$('modeAdd').addEventListener('click', () => {
+  const msg = $('modeMsg'); msg.classList.remove('bad');
+  try {
+    const def = JSON.parse($('modeJson').value); def.custom = true; delete def.hooks;
+    const m = registerMode(def); const saved = store.get('custom', []).filter(x => x.id !== m.id); saved.push(def); store.set('custom', saved);
+    settings.mode = m.id; renderModes(); renderDiff(); msg.textContent = '"' + m.name + '" 모드를 추가하고 선택했습니다.';
+  } catch (e) { msg.classList.add('bad'); msg.textContent = '추가하지 못했습니다: ' + e.message; }
+});
+$('modeReset').addEventListener('click', () => {
+  store.get('custom', []).forEach(d => MODES.delete(String(d.id))); store.set('custom', []);
+  registerMode(PIRATE); registerMode(TURTLE); renderModes(); renderDiff(); $('modeMsg').textContent = '내 모드를 모두 지웠습니다.';
+});
+
+registerMode(PIRATE); registerMode(TURTLE);
+store.get('custom', []).forEach(d => { try { d.custom = true; registerMode(d); } catch (e) {} });
+window.RowGame = { registerMode, modes: MODES, api };
+paintSky(PIRATE.look.sky, PIRATE.look.horizon); buildOwnBoat('skiff'); buildOars('skiff'); layoutMirror();
+renderModes(); renderDiff(); syncAuto();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
