@@ -244,7 +244,7 @@ function registerMode(def) { const m = normalizeMode(def); MODES.set(m.id, m); i
 
 const PIRATE_FILM = {
   id: 'pirate-chase-film', name: '해적 추격 (실사)', tagline: '실사 영상. 젓는 박자에 맞춰 영상이 흐른다. 따라잡히기 전에 500m를 저어라.',
-  video: { chase: 'media/sea-row.mp4', spm: 45, ship: 'media/pirate-ship.mp4', horizon: 0.80, shipCrop: [0.30, 0.02, 0.70, 1.0], shipHeight: 26, zoom: 1.08 },
+  video: { chase: 'media/sea-row.mp4', spm: 45, ship: 'media/pirate-ship.mp4', horizon: 0.787, shipCrop: [0.30, 0.02, 0.70, 1.0], shipHeight: 26, zoom: 1.08 },
   goal: { distance: 500, label: '항구', kind: 'harbor' }, steer: false,
   pursuer: { gap: 90, speed: [2.5, 3.4], ramp: 150, label: '해적선' },
   cannon: { every: [7, 12] },
