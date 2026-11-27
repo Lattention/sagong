@@ -29,6 +29,11 @@ html, body { height: 100%; }
 body { background: var(--ink); color: var(--foam); font-family: var(--body); overflow: hidden; }
 #app { position: relative; height: 100%; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
 #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#film { position: absolute; inset: 0; overflow: hidden; background: #000; pointer-events: none; }
+#filmPan { position: absolute; inset: 0; will-change: transform; }
+#film video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#filmFx { position: absolute; inset: 0; z-index: 5; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%); box-shadow: inset 0 0 0 0 transparent; }
+#filmFx::after { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(228,87,46,.75) 100%); opacity: var(--danger, 0); }
 button { font: inherit; color: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; }
 button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
 .gutter { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
@@ -93,6 +98,7 @@ textarea { width: 100%; box-sizing: border-box; min-height: 180px; margin-block:
 
 <div id="app">
   <canvas id="view" aria-label="사공의 눈으로 본 바다"></canvas>
+  <div id="film" hidden><div id="filmPan"><video id="vidA" playsinline muted preload="auto"></video><video id="vidB" playsinline muted preload="auto"></video></div><div id="filmFx"></div></div>
 
   <div id="hud" class="gutter" hidden>
     <div class="stat"><b id="sGoal">500 m</b><span id="sGoalL">항구까지</span></div>
@@ -215,6 +221,7 @@ function normalizeMode(m) {
     cannon: m.cannon ? Object.assign({ every: [6, 11] }, m.cannon === true ? {} : m.cannon) : null,
     rocks: (Array.isArray(m.rocks) ? m.rocks : []).map(r => ({ at: num(r.at, 0), x: num(r.x, 0), r: clamp(num(r.r, 2.5), 1, 8) })),
     pace: null,
+    video: (m.video && typeof m.video.chase === 'string') ? { chase: m.video.chase, spm: clamp(num(m.video.spm, 24), 10, 60) } : null,
     lines: (Array.isArray(m.lines) ? m.lines : []).map(l => ({ at: num(l.at, 0), say: String(l.say || '') })).sort((a, b) => a.at - b.at),
     hooks: (m.hooks && typeof m.hooks === 'object') ? m.hooks : {}
   };
@@ -225,8 +232,16 @@ function normalizeMode(m) {
 }
 function registerMode(def) { const m = normalizeMode(def); MODES.set(m.id, m); if (typeof renderModes === 'function') renderModes(); return m; }
 
+const PIRATE_FILM = {
+  id: 'pirate-chase-film', name: '해적 추격 (실사)', tagline: '실사 영상. 젓는 박자에 맞춰 영상이 흐른다. 따라잡히기 전에 500m를 저어라.',
+  video: { chase: 'media/pirate-chase.mp4', spm: 30 },
+  goal: { distance: 500, label: '항구', kind: 'harbor' }, steer: false,
+  pursuer: { gap: 90, speed: [2.5, 3.4], ramp: 150, label: '해적선' },
+  cannon: { every: [7, 12] },
+  lines: [{ at: 0, say: '해적이다! 항구까지 저어라!' }, { at: 250, say: '절반 왔다. 놈들이 속도를 올린다!' }, { at: 430, say: '항구가 가깝다. 마지막이다!' }]
+};
 const PIRATE = {
-  id: 'pirate-chase', name: '해적 추격', tagline: '해적선이 쫓아온다. 따라잡히기 전에 500m 앞 항구로 들어가라.',
+  id: 'pirate-chase', name: '해적 추격 (3D)', tagline: '해적선이 쫓아온다. 따라잡히기 전에 500m 앞 항구로 들어가라.',
   look: { sky: '#3f7fb5', horizon: '#f3c592', sea: '#1c5c70' },
   goal: { distance: 500, label: '항구', kind: 'harbor' },
   lane: 30,
@@ -787,8 +802,36 @@ function sizePost(w, h) {
 }
 const camDir = new THREE.Vector3();
 
+/* ================= Film: real footage driven by the rowing rhythm ================= */
+const film = { a: $('vidA'), b: $('vidB'), cur: null, nxt: null, fading: false, on: false, rate: 0 };
+function filmStart(v) {
+  film.on = true; film.cur = film.a; film.nxt = film.b; film.fading = false; film.rate = 0;
+  [film.a, film.b].forEach(el => { if (el.getAttribute('src') !== v.chase) el.src = v.chase; el.pause(); });
+  film.a.style.opacity = 1; film.a.style.zIndex = 1; film.b.style.opacity = 0; film.b.style.zIndex = 2;
+  try { film.a.currentTime = 0; } catch (e) {}
+  $('film').hidden = false;
+}
+function filmStop() { film.on = false; film.a.pause(); film.b.pause(); }
+function filmTick(dt, v) {
+  // Playback follows the stroke rate, so the arms on screen pull roughly when you pull.
+  const rowing = rower.spm >= 12 && rower.strokeT < 4;
+  const want = rowing ? clamp(rower.spm / v.spm, 0.4, 2.2) : clamp(rower.speed / 2.8, 0, 1) * 0.6;
+  film.rate += (want - film.rate) * Math.min(1, dt * 2.5);
+  const c = film.cur, n = film.nxt, d = c.duration;
+  if (film.rate < 0.1) { if (!c.paused) c.pause(); }
+  else { c.playbackRate = film.rate; if (c.paused) c.play().catch(() => {}); }
+  if (!d) return;
+  const tail = 0.7;
+  if (!film.fading && c.currentTime > d - tail) { film.fading = true; c.style.zIndex = 1; n.style.zIndex = 2; n.style.opacity = 0; try { n.currentTime = 0.03; } catch (e) {} }
+  if (film.fading) {
+    n.playbackRate = Math.max(0.1, film.rate); if (film.rate >= 0.1 && n.paused) n.play().catch(() => {});
+    const k = clamp((c.currentTime - (d - tail)) / (tail - 0.12), 0, 1); n.style.opacity = k;
+    if (k >= 1 || c.ended) { c.pause(); c.style.opacity = 0; n.style.opacity = 1; film.cur = n; film.nxt = c; film.fading = false; }
+  }
+}
+
 /* ================= Game state ================= */
-const settings = { bodycam: store.get('bodycam', true), mode: store.get('mode', 'pirate-chase'), diff: store.get('diff', 1), autoLook: store.get('autoLook', true), voice: false };
+const settings = { bodycam: store.get('bodycam', true), mode: store.get('mode', 'pirate-chase-film'), diff: store.get('diff', 1), autoLook: store.get('autoLook', true), voice: false };
 let S = null, phase = 'menu', worldT = 0, pursuerMesh = null;
 const head = { yaw: 0, hold: null, drag: null, voice: null, auto: null };
 const steer = { l: false, r: false, voice: 0, voiceUntil: 0, vis: 0 };
@@ -820,6 +863,8 @@ function startGame() {
   $('sGoalL').textContent = mode.goal.label + '까지';
   $('sGapBox').hidden = !mode.pursuer; if (mode.pursuer) $('sGapL').textContent = mode.pursuer.label + ' 거리';
   $('pace').hidden = !mode.pace;
+  if (mode.video) { S.rocks = []; filmStart(mode.video); } else { filmStop(); $('film').hidden = true; }
+  $('lookB').hidden = !!mode.video; $('mirrorTag').style.display = mode.video ? 'none' : '';
   phase = 'playing'; $('menu').hidden = true; $('over').hidden = true; $('hud').hidden = false; $('controls').hidden = false; $('mirrorTag').hidden = false; $('rec').hidden = !settings.bodycam;
   syncControls();
   if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});
@@ -827,7 +872,7 @@ function startGame() {
 }
 function end(won, text) {
   if (!S || S.over) return; S.over = true; phase = 'over';
-  ambientOn(false); (won ? snd.win : snd.lose)();
+  ambientOn(false); (won ? snd.win : snd.lose)(); filmStop();
   try { if (S.mode.hooks.onEnd) S.mode.hooks.onEnd(api, won); } catch (e) { console.error(e); }
   $('ovKicker').textContent = S.mode.name; $('ovTitle').textContent = won ? '성공' : '실패'; $('ovText').textContent = text;
   $('rDist').textContent = Math.round(S.dist) + ' m'; $('rTime').textContent = fmtTime(S.t);
@@ -933,6 +978,20 @@ function frame(now) {
   updateRower(dt);
   if (phase === 'playing') { tick(dt); hudT -= dt; if (hudT <= 0 && S && !S.over) { hudT = 0.15; updateHud(); } }
   if (worldT > capUntil) $('caption').hidden = true;
+  if (film.on && S && S.mode.video) {
+    if (phase === 'playing') filmTick(dt, S.mode.video);
+    shake = Math.max(0, shake - dt * 0.8);
+    let tgt = 0;
+    if (head.drag) tgt = head.drag.yaw; else if (head.hold != null) tgt = head.hold;
+    else if (head.voice && worldT < head.voice.until) tgt = head.voice.yaw;
+    else if (head.auto && worldT < head.auto.until && settings.autoLook) tgt = head.auto.yaw;
+    head.yaw += (tgt - head.yaw) * Math.min(1, dt * 5);
+    // The footage is wider than the screen: turning the head slides the frame, like a camera on the chest.
+    const q = reduceMotion ? 0 : shake * 2.5, pan = clamp(head.yaw / 1.45, -1, 1) * 10 + rand(-q, q), tilt = -1.5 + rand(-q, q);
+    $('filmPan').style.transform = 'translate(' + pan.toFixed(2) + '%,' + tilt.toFixed(2) + '%) scale(1.24)';
+    $('filmFx').style.setProperty('--danger', S.mode.pursuer ? clamp(1 - (S.gap - 11) / 45, 0, 1).toFixed(2) : 0);
+    updateParts(dt); return;
+  }
 
   const bx = S ? S.x : 0, bz = S ? -S.dist : -worldT * 1.2, calm = reduceMotion ? 0.3 : 1;
   U.time.value = worldT;
@@ -1039,7 +1098,7 @@ function setVoice(on) {
 /* ================= Menu ================= */
 function renderModes() {
   const list = $('modeList'); if (!list) return; list.textContent = '';
-  if (!MODES.has(settings.mode)) settings.mode = 'pirate-chase';
+  if (!MODES.has(settings.mode)) settings.mode = 'pirate-chase-film';
   MODES.forEach(m => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'mode'; b.setAttribute('aria-pressed', m.id === settings.mode);
     const s = document.createElement('strong'); s.textContent = m.name;
@@ -1064,7 +1123,7 @@ $('bodyBtn').addEventListener('click', () => { settings.bodycam = !settings.body
 function syncAuto() { $('bodyBtn').setAttribute('aria-pressed', settings.bodycam); $('bodyBtn').textContent = '바디캠 화면: ' + (settings.bodycam ? '켬' : '끔'); $('autoBtn').setAttribute('aria-pressed', settings.autoLook); $('autoBtn').textContent = '소리 나는 쪽 자동으로 보기: ' + (settings.autoLook ? '켬' : '끔'); }
 $('startBtn').addEventListener('click', startGame);
 $('againBtn').addEventListener('click', startGame);
-$('menuBtn').addEventListener('click', () => { phase = 'menu'; $('over').hidden = true; $('menu').hidden = false; });
+$('menuBtn').addEventListener('click', () => { phase = 'menu'; $('film').hidden = true; $('over').hidden = true; $('menu').hidden = false; });
 
 // Custom modes
 const EXAMPLE = { id: 'my-night-escape', name: '한밤의 탈출', tagline: '달빛 아래 800m. 바위가 많다.', look: { sky: '#0d1b33', horizon: '#3b4a6b', sea: '#0f2f3d' }, goal: { distance: 800, label: '등대' }, pursuer: { gap: 120, speed: [2.4, 3.2], ramp: 240, label: '추격선' }, cannon: { every: [8, 14] }, rocks: [{ at: 150, x: 4, r: 3 }, { at: 320, x: -5, r: 4 }, { at: 520, x: 0, r: 3 }, { at: 700, x: 6, r: 3 }], lines: [{ at: 0, say: '불을 끄고 조용히 저어라.' }, { at: 600, say: '등대 불빛이 보인다!' }] };
@@ -1079,10 +1138,10 @@ $('modeAdd').addEventListener('click', () => {
 });
 $('modeReset').addEventListener('click', () => {
   store.get('custom', []).forEach(d => MODES.delete(String(d.id))); store.set('custom', []);
-  registerMode(PIRATE); renderModes(); renderDiff(); $('modeMsg').textContent = '내 모드를 모두 지웠습니다.';
+  registerMode(PIRATE_FILM); registerMode(PIRATE); renderModes(); renderDiff(); $('modeMsg').textContent = '내 모드를 모두 지웠습니다.';
 });
 
-registerMode(PIRATE);
+registerMode(PIRATE_FILM); registerMode(PIRATE);
 store.get('custom', []).forEach(d => { try { d.custom = true; registerMode(d); } catch (e) {} });
 window.RowGame = { registerMode, modes: MODES, api };
 setLook(MODES.get('pirate-chase').look); buildOwnBoat('skiff'); buildOars('skiff'); layoutMirror();
