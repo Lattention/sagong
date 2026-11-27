@@ -40,7 +40,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .stat span { font-size: .72rem; color: var(--muted); letter-spacing: .04em; white-space: nowrap; }
 .stat.warn b { color: var(--flare); }
 #hp { letter-spacing: .15em; color: var(--brass); }
-#pace { position: absolute; left: 0; right: 0; top: 74px; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
+#rec { position: absolute; left: 0; top: 74px; font: 500 .72rem/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .06em; color: #fff; text-shadow: 0 0 3px #000, 0 1px 2px #000; pointer-events: none; font-variant-numeric: tabular-nums; }
+#rec i { display: inline-block; width: .6em; height: .6em; border-radius: 50%; background: var(--flare); margin-right: .5em; animation: blink 1.2s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .15; } }
+@media (prefers-reduced-motion: reduce) { #rec i { animation: none; } }
+#pace { position: absolute; left: 0; right: 0; top: 96px; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
 #paceBar { position: relative; width: min(420px, 100%); height: 16px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); }
 #paceZone { position: absolute; top: 0; bottom: 0; left: 35%; width: 30%; background: var(--tide); opacity: .55; border-radius: 6px; }
 #paceMark { position: absolute; top: -4px; width: 4px; height: 22px; background: var(--brass); border-radius: 2px; left: 50%; }
@@ -100,6 +104,7 @@ textarea { width: 100%; box-sizing: border-box; min-height: 180px; margin-block:
     <div id="paceBar"><div id="paceZone"></div><div id="paceMark"></div></div>
     <div id="paceText">목표 2:30 /500m</div>
   </div>
+  <div id="rec" class="gutter" hidden><i></i>REC <span id="recT"></span> · CAM 01</div>
   <div id="mirrorTag" hidden>거울: 배가 나아가는 쪽</div>
   <div id="caption" class="gutter" hidden><p id="capText"></p></div>
 
@@ -140,6 +145,7 @@ textarea { width: 100%; box-sizing: border-box; min-height: 180px; margin-block:
           <button type="button" id="pmBtn">PM5 블루투스 연결</button>
           <button type="button" id="voiceBtn" aria-pressed="false">음성 명령 켜기</button>
           <button type="button" id="autoBtn" aria-pressed="true">소리 나는 쪽 자동으로 보기: 켬</button>
+          <button type="button" id="bodyBtn" aria-pressed="true">바디캠 화면: 켬</button>
         </div>
         <p class="note" id="pmNote">PM5가 없으면 화면의 노 젓기 버튼이나 스페이스바로 저을 수 있습니다.</p>
         <p class="note" id="voiceNote">음성 명령: "왼쪽", "오른쪽", "뒤", "정면"은 시선, "키 왼쪽", "키 오른쪽"은 방향타.</p>
@@ -229,20 +235,6 @@ const PIRATE = {
   rocks: [{ at: 120, x: 5, r: 3 }, { at: 210, x: -6, r: 3.5 }, { at: 300, x: 2, r: 3 }, { at: 385, x: -3, r: 4 }, { at: 440, x: 8, r: 3 }],
   lines: [{ at: 0, say: '해적이다! 항구까지 저어라!' }, { at: 250, say: '절반 왔다. 놈들이 속도를 올린다!' }, { at: 430, say: '등대가 보인다. 마지막이다!' }]
 };
-const TURTLE = {
-  id: 'turtle-ship', name: '거북선 격군', tagline: '북소리와 구령에 맞춰 저어라. 박자가 어긋나면 배가 암초 쪽으로 밀린다.',
-  boat: 'turtle', steer: false, lane: 12,
-  look: { sky: '#6d7f95', horizon: '#d9c2a3', sea: '#23515a', fog: [60, 380] },
-  goal: { distance: 400, label: '적진', kind: 'fleet' },
-  pace: { segments: [
-    { at: 0, target: 2.6, tol: 0.5, spm: 20, say: '북소리에 맞춰라! 천천히 나아간다.' },
-    { at: 90, target: 3.2, tol: 0.45, spm: 24, say: '좌현 세게! 물살이 빠르다.' },
-    { at: 190, target: 2.4, tol: 0.4, spm: 18, say: '암초 지대다. 힘을 빼고 박자만 맞춰라.' },
-    { at: 280, target: 3.6, tol: 0.5, spm: 28, say: '돌격! 적진으로 전력을 다해라!' }
-  ] },
-  lines: [{ at: 370, say: '적선이 코앞이다. 그대로 들이받아라!' }]
-};
-
 /* ================= Rower input: PM5 or simulated strokes ================= */
 const rower = { speed: 0, spm: 0, source: 'sim', sim: 0, lastStroke: -9, strokeT: 9, pmSpeed: 0, pmSeen: 0, pmState: 0, device: null };
 const strokeListeners = [];
@@ -611,12 +603,12 @@ function poseOar(o, phase) {           // phase 0..1 drive, 1..2 recovery
   else { const e = clamp(phase - 1, 0, 1); a = lerp(0.5, -0.5, e * e * (3 - 2 * e)); dip = -0.05; }
   o.rotation.y = -s * a; o.rotation.z = -s * dip;
 }
-const CAM = { y: 1.25, z: 0.15 };
+const CAM = { y: 1.12, z: 0.15 };
 const vA = new THREE.Vector3(), vB = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
 function poseArms() {
   arms.forEach(a => {
     vA.set(-a.s * (a.o.userData.inb - 0.15), 0, 0).applyEuler(a.o.rotation).add(a.o.position);      // hand on the grip
-    vB.set(a.s * 0.36, 0.7, CAM.z);                                                           // shoulder
+    vB.set(a.s * 0.44, 0.8, CAM.z + 0.12);                                                           // shoulder
     a.hand.position.copy(vA);
     const len = vA.distanceTo(vB); a.arm.position.copy(vA).add(vB).multiplyScalar(0.5); a.arm.scale.set(1, len, 1);
     a.arm.quaternion.setFromUnitVectors(UP, vA.sub(vB).normalize());
@@ -763,8 +755,40 @@ function wakeFx(dt, speed, ship) {
   if (ship) [1, -1].forEach(s => emit(ship.position.x + s * 1.3, 0.3, ship.position.z - 9.6, { vx: s * 2.4, vy: 1.2, g: -3, vz: 1.5, s0: 1.2, s1: 4.5, life: 2.6, a: 0.6 }));
 }
 
+/* ---- body-cam lens pass: fisheye, colour fringing, vignette, sensor noise, slow auto-exposure ---- */
+let postRT = null;
+const postU = { tDiffuse: { value: null }, time: U.time, aspect: { value: 1 }, k: { value: 0.55 }, exposure: { value: 1 } };
+const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const postQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  uniforms: postU, depthTest: false, depthWrite: false,
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`,
+  fragmentShader: `precision highp float; varying vec2 vUv; uniform sampler2D tDiffuse; uniform float time, aspect, k, exposure;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+vec2 lens(vec2 uv, float kk){ vec2 a = vec2(aspect, 1.); vec2 c = (uv - .5)*a; float r2 = dot(c,c), m = dot(a*.5, a*.5); c *= (1. + kk*r2)/(1. + kk*m); return c/a + .5; }
+void main(){
+  vec3 c = vec3(texture2D(tDiffuse, lens(vUv, k*1.04)).r, texture2D(tDiffuse, lens(vUv, k)).g, texture2D(tDiffuse, lens(vUv, k*0.96)).b);
+  c *= exposure;
+  float l = dot(c, vec3(.299,.587,.114));
+  c = mix(vec3(l), c, 0.8) * vec3(0.97, 1.0, 0.985);
+  vec2 a = vec2(aspect, 1.); float r = length((vUv - .5)*a)/length(a*.5);
+  c *= mix(1., 0.22, smoothstep(0.6, 1.05, r));
+  c += (hash(vUv*vec2(1387., 911.) + fract(time)*71.) - .5) * 0.06 * (0.25 + l);
+  gl_FragColor = vec4(max(c, 0.), 1.);
+  #include <tonemapping_fragment>
+  #include <encodings_fragment>
+}`
+}));
+postQuad.frustumCulled = false; postScene.add(postQuad);
+function sizePost(w, h) {
+  const pr = renderer.getPixelRatio(), W = Math.max(2, Math.floor(w * pr)), H = Math.max(2, Math.floor(h * pr));
+  if (postRT) postRT.dispose();
+  postRT = renderer.capabilities.isWebGL2 ? new THREE.WebGLMultisampleRenderTarget(W, H) : new THREE.WebGLRenderTarget(W, H);
+  postU.tDiffuse.value = postRT.texture; postU.aspect.value = w / h;
+}
+const camDir = new THREE.Vector3();
+
 /* ================= Game state ================= */
-const settings = { mode: store.get('mode', 'pirate-chase'), diff: store.get('diff', 1), autoLook: store.get('autoLook', true), voice: false };
+const settings = { bodycam: store.get('bodycam', true), mode: store.get('mode', 'pirate-chase'), diff: store.get('diff', 1), autoLook: store.get('autoLook', true), voice: false };
 let S = null, phase = 'menu', worldT = 0, pursuerMesh = null;
 const head = { yaw: 0, hold: null, drag: null, voice: null, auto: null };
 const steer = { l: false, r: false, voice: 0, voiceUntil: 0, vis: 0 };
@@ -796,7 +820,7 @@ function startGame() {
   $('sGoalL').textContent = mode.goal.label + '까지';
   $('sGapBox').hidden = !mode.pursuer; if (mode.pursuer) $('sGapL').textContent = mode.pursuer.label + ' 거리';
   $('pace').hidden = !mode.pace;
-  phase = 'playing'; $('menu').hidden = true; $('over').hidden = true; $('hud').hidden = false; $('controls').hidden = false; $('mirrorTag').hidden = false;
+  phase = 'playing'; $('menu').hidden = true; $('over').hidden = true; $('hud').hidden = false; $('controls').hidden = false; $('mirrorTag').hidden = false; $('rec').hidden = !settings.bodycam;
   syncControls();
   if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});
   try { if (mode.hooks.onStart) mode.hooks.onStart(api); } catch (e) { console.error(e); }
@@ -808,7 +832,7 @@ function end(won, text) {
   $('ovKicker').textContent = S.mode.name; $('ovTitle').textContent = won ? '성공' : '실패'; $('ovText').textContent = text;
   $('rDist').textContent = Math.round(S.dist) + ' m'; $('rTime').textContent = fmtTime(S.t);
   $('rSplit').textContent = fmtSplit(S.dist / Math.max(1, S.t)); $('rStrokes').textContent = S.strokes;
-  $('hud').hidden = true; $('controls').hidden = true; $('caption').hidden = true; $('pace').hidden = true; $('mirrorTag').hidden = true; $('over').hidden = false;
+  $('hud').hidden = true; $('controls').hidden = true; $('caption').hidden = true; $('pace').hidden = true; $('mirrorTag').hidden = true; $('rec').hidden = true; $('over').hidden = false;
 }
 function hurt(text) {
   S.hp -= 1; S.pen = 0.3; shake = 0.5; snd.crash(); say(text);
@@ -880,6 +904,7 @@ function updateHud() {
   const m = S.mode;
   $('sGoal').textContent = Math.max(0, Math.round(m.goal.distance - S.dist)) + ' m';
   if (m.pursuer) { $('sGap').textContent = Math.max(0, Math.round(S.gap - 11)) + ' m'; $('sGapBox').classList.toggle('warn', S.gap < 40); }
+  { const d = new Date(), z = n => String(n).padStart(2, '0'); $('recT').textContent = d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + ' ' + z(d.getHours()) + ':' + z(d.getMinutes()) + ':' + z(d.getSeconds()); }
   $('sSplit').textContent = fmtSplit(rower.speed); $('sSpm').textContent = rower.spm || 0;
   $('hp').textContent = '●'.repeat(Math.max(0, S.hp)) + '○'.repeat(Math.max(0, m.hull - S.hp));
 }
@@ -888,7 +913,7 @@ function updateHud() {
 let last = performance.now(), hudT = 0;
 function layoutMirror() {
   const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1, asp = w / h;
-  camera.aspect = asp; camera.fov = asp < 1 ? 82 : 68; camera.updateProjectionMatrix();
+  camera.aspect = asp; camera.fov = settings.bodycam ? (asp < 1 ? 110 : 98) : (asp < 1 ? 82 : 68); camera.updateProjectionMatrix();
   const halfV = camera.fov * Math.PI / 360, halfH = Math.atan(Math.tan(halfV) * asp), d = 1.7;
   const width = clamp(2 * d * Math.tan(halfH * 0.36), 0.42, 1.25);
   mirror.scale.set(width, width, 1);
@@ -897,7 +922,7 @@ function layoutMirror() {
 }
 function resize() {
   const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return;
-  renderer.setSize(w, h, false); layoutMirror();
+  renderer.setSize(w, h, false); sizePost(w, h); layoutMirror();
 }
 window.addEventListener('resize', resize); resize();
 const v3 = new THREE.Vector3();
@@ -931,8 +956,12 @@ function frame(now) {
   head.yaw += (target - head.yaw) * Math.min(1, dt * 6);
   shake = Math.max(0, shake - dt * 0.8); const sh = reduceMotion ? 0 : shake;
   const lean = reduceMotion ? 0 : (ph < 1 ? -0.1 * Math.sin(ph * Math.PI * 0.5) : -0.1 * (1 - Math.min(1, ph - 1)));   // body swings with the stroke
-  camera.position.set(rand(-sh, sh) * 0.2, CAM.y + rand(-sh, sh) * 0.2, CAM.z + lean);
-  camera.rotation.set(-0.12, Math.PI + head.yaw, 0);
+  const leanK = -lean / 0.1, jit = reduceMotion ? 0 : 1;      // chest-mounted camera: it rocks with the torso and never sits still
+  camera.position.set(rand(-sh, sh) * 0.2, CAM.y + rand(-sh, sh) * 0.2 + leanK * 0.04, CAM.z + lean * 1.8);
+  camera.rotation.set(-0.17 + leanK * 0.1 * jit + (n3(worldT * 0.7, 1, 0) - 0.5) * 0.035 * jit, Math.PI + head.yaw + (n3(0, worldT * 0.6, 2) - 0.5) * 0.035 * jit, (n3(3, 0, worldT * 0.5) - 0.5) * 0.045 * jit);
+  camera.getWorldDirection(camDir);
+  const expT = 1.2 - 0.6 * Math.pow(Math.max(0, camDir.dot(SUN)), 3);
+  postU.exposure.value += (expT - postU.exposure.value) * Math.min(1, dt * 1.4);
 
   const chasing = S && pursuerMesh && phase !== 'menu';
   if (chasing) {
@@ -945,12 +974,14 @@ function frame(now) {
   renderer.shadowMap.needsUpdate = true;
 
   mirror.visible = false; renderer.setRenderTarget(mirrorRT); renderer.render(scene, mirrorCam);
-  renderer.setRenderTarget(null); mirror.visible = true; renderer.render(scene, camera);
+  mirror.visible = true;
+  if (settings.bodycam && postRT) { renderer.setRenderTarget(postRT); renderer.render(scene, camera); renderer.setRenderTarget(null); renderer.render(postScene, postCam); }
+  else { renderer.setRenderTarget(null); renderer.render(scene, camera); }
 
   if (phase === 'playing') {
     mirrorGlass.getWorldPosition(v3); v3.y -= 0.25 * mirror.scale.y; v3.project(camera);
     const tag = $('mirrorTag'), vis = v3.z < 1 && Math.abs(v3.x) < 0.95 && Math.abs(v3.y) < 0.95;
-    tag.style.opacity = vis ? 1 : 0; tag.style.left = (v3.x * 0.5 + 0.5) * canvas.clientWidth + 'px'; tag.style.top = (-v3.y * 0.5 + 0.5) * canvas.clientHeight + 'px';
+    tag.style.opacity = vis && !settings.bodycam ? 1 : 0; tag.style.left = (v3.x * 0.5 + 0.5) * canvas.clientWidth + 'px'; tag.style.top = (-v3.y * 0.5 + 0.5) * canvas.clientHeight + 'px';
   }
 }
 
@@ -1029,7 +1060,8 @@ document.querySelectorAll('#diffList button').forEach(b => b.addEventListener('c
 $('pmBtn').addEventListener('click', connectPM5);
 $('voiceBtn').addEventListener('click', () => setVoice(!settings.voice));
 $('autoBtn').addEventListener('click', () => { settings.autoLook = !settings.autoLook; store.set('autoLook', settings.autoLook); syncAuto(); });
-function syncAuto() { $('autoBtn').setAttribute('aria-pressed', settings.autoLook); $('autoBtn').textContent = '소리 나는 쪽 자동으로 보기: ' + (settings.autoLook ? '켬' : '끔'); }
+$('bodyBtn').addEventListener('click', () => { settings.bodycam = !settings.bodycam; store.set('bodycam', settings.bodycam); syncAuto(); layoutMirror(); });
+function syncAuto() { $('bodyBtn').setAttribute('aria-pressed', settings.bodycam); $('bodyBtn').textContent = '바디캠 화면: ' + (settings.bodycam ? '켬' : '끔'); $('autoBtn').setAttribute('aria-pressed', settings.autoLook); $('autoBtn').textContent = '소리 나는 쪽 자동으로 보기: ' + (settings.autoLook ? '켬' : '끔'); }
 $('startBtn').addEventListener('click', startGame);
 $('againBtn').addEventListener('click', startGame);
 $('menuBtn').addEventListener('click', () => { phase = 'menu'; $('over').hidden = true; $('menu').hidden = false; });
@@ -1047,10 +1079,10 @@ $('modeAdd').addEventListener('click', () => {
 });
 $('modeReset').addEventListener('click', () => {
   store.get('custom', []).forEach(d => MODES.delete(String(d.id))); store.set('custom', []);
-  registerMode(PIRATE); registerMode(TURTLE); renderModes(); renderDiff(); $('modeMsg').textContent = '내 모드를 모두 지웠습니다.';
+  registerMode(PIRATE); renderModes(); renderDiff(); $('modeMsg').textContent = '내 모드를 모두 지웠습니다.';
 });
 
-registerMode(PIRATE); registerMode(TURTLE);
+registerMode(PIRATE);
 store.get('custom', []).forEach(d => { try { d.custom = true; registerMode(d); } catch (e) {} });
 window.RowGame = { registerMode, modes: MODES, api };
 setLook(MODES.get('pirate-chase').look); buildOwnBoat('skiff'); buildOars('skiff'); layoutMirror();
